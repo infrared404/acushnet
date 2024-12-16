@@ -1,0 +1,225 @@
+CLASS lhc_zrtr_r_bpcredit_rating DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_global_features FOR GLOBAL FEATURES
+      IMPORTING REQUEST requested_features FOR zrtr_r_bpcredit_rating RESULT result.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR zrtr_r_bpcredit_rating RESULT result.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ zrtr_r_bpcredit_rating RESULT result.
+
+    METHODS lock FOR LOCK
+      IMPORTING keys FOR LOCK zrtr_r_bpcredit_rating.
+
+    METHODS updatebpcreditrating FOR MODIFY
+      IMPORTING keys FOR ACTION zrtr_r_bpcredit_rating~updatebpcreditrating RESULT result.
+
+ENDCLASS.
+
+CLASS lhc_zrtr_r_bpcredit_rating IMPLEMENTATION.
+
+  METHOD get_global_features.
+  ENDMETHOD.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD lock.
+  ENDMETHOD.
+
+  METHOD updatebpcreditrating.
+*&---------------------------------------------------------------------*
+*& Method updatebpcreditrating.                                        *
+*&---------------------------------------------------------------------*
+*& Title        :  Behavior Implementation for ZRTR_R_BPCREDIT_RATING
+*& Item Ref     :  RTR-I-328
+*& Date         :  10/17/2024
+*& Author       :  Ahmad Ammar/AAMMAR
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 11/27/2024   CSOO          DS4K901603  Resume to complete the       *
+*&                                        remaining development after  *
+*&                                        SAP OSS Notes implementation.*
+*&---------------------------------------------------------------------*
+    CONSTANTS:
+      lc_grade_method TYPE zde_grade_method VALUE 'EXPERIAN'.
+
+    DATA:
+      lv_validtodate   TYPE zrtr_r_bpcredit_rating-dateto,
+      lv_validfromdate TYPE zrtr_r_bpcredit_rating-datefrom,
+      lv_rating        TYPE zrtr_r_bpcredit_rating-grade,
+      lv_customerno    TYPE zrtr_r_bpcredit_rating-partner,
+      lt_creditrating  TYPE TABLE OF zrtr_creditrating_s,
+      ls_creditrating  TYPE zrtr_creditrating_s,
+      lt_creditratingx TYPE TABLE OF zrtr_creditratingx_s,
+      ls_creditratingx TYPE zrtr_creditratingx_s,
+      lt_return        TYPE STANDARD TABLE OF bapiret2,
+      ls_return        TYPE bapiret2,
+      lv_timestamp     TYPE timestamp,
+      lv_error         TYPE abap_boolean.
+
+*   Get system time in SAP
+    GET TIME STAMP FIELD lv_timestamp.
+
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<lfs_key>).
+      lv_customerno = <lfs_key>-%param-customernumber.
+      lv_rating = <lfs_key>-%param-rating.
+      IF <lfs_key>-%param-validtodate IS NOT INITIAL.
+        lv_validtodate = <lfs_key>-%param-validtodate.
+      ENDIF.
+    ENDLOOP.
+
+*   Add new rating to external credit information table
+    IF lv_validtodate IS INITIAL.
+*     Check record in S4 BP Credit Rating
+      SELECT partner, dateto
+        FROM zrtr_r_bpcredit_rating
+       WHERE partner     = @lv_customerno
+         AND grademethod = @lc_grade_method
+        INTO TABLE @DATA(lt_s4bprating_add).
+
+      IF sy-subrc EQ 0.
+*       Get the latest record of the same Grade Method
+        SORT lt_s4bprating_add BY dateto DESCENDING.
+        DATA(ls_s4bprating_add) = lt_s4bprating_add[ 1 ].
+      ENDIF.
+
+      IF ls_s4bprating_add-dateto IS NOT INITIAL.
+*       Add 1 day to current Date To, so that the range should start the next day
+        lv_validfromdate = ls_s4bprating_add-dateto + 1.
+      ELSE.
+        lv_validfromdate = cl_abap_context_info=>get_system_date( ).
+      ENDIF.
+
+*     Calculate new date for DateTo after 6 months
+      zcl_rtr_bp_creditrtg_upd=>calculate_date(
+        EXPORTING
+          iv_date      = lv_validfromdate
+          iv_days      = 0
+          iv_months    = 6
+          iv_years     = 0
+        IMPORTING
+          ev_calc_date = lv_validtodate
+      ).
+
+*     Conduct add new credit rating for BP
+      ls_creditrating-timestamp    = lv_timestamp.
+      ls_creditrating-date_to      = lv_validtodate.
+      ls_creditrating-grade_method = lc_grade_method.
+      ls_creditrating-date_from    = lv_validfromdate.
+      ls_creditrating-flg_permit   = abap_true.
+      ls_creditrating-grade        = lv_rating.
+      ls_creditrating-date_when    = lv_validfromdate.
+      APPEND ls_creditrating TO lt_creditrating.
+
+      zcl_rtr_modify_bp_creditrating=>create_instance( )->add(
+        EXPORTING
+          iv_businesspartner = lv_customerno
+        CHANGING
+          ct_return          = lt_return
+          ct_ratingtable     = lt_creditrating
+      ).
+
+*     Raise error if error message returned
+      IF line_exists( lt_return[ type = 'E' number = '016' ] ) .
+        INSERT VALUE #( %tky = <lfs_key>-%cid  ) INTO TABLE failed-zrtr_r_bpcredit_rating.
+        INSERT VALUE #( %tky = <lfs_key>-%param
+                        %msg = new_message_with_text(
+                    severity = if_abap_behv_message=>severity-error
+                    text     = TEXT-001 ) "Validity ranges for rating procedure overlap.
+        ) INTO TABLE reported-zrtr_r_bpcredit_rating.
+      ENDIF.
+*   Change existing rating within the same validity period to external credit information table
+    ELSE.
+*     Check record in S4 BP Credit Rating
+      SELECT SINGLE partner, dateto, grademethod
+        FROM zrtr_r_bpcredit_rating
+       WHERE partner = @lv_customerno
+         AND dateto  = @lv_validtodate
+        INTO @DATA(ls_s4bprating_chg).
+
+      IF sy-subrc EQ 0.
+*       Conduct change for existing credit rating for BP
+        ls_creditrating-grade        = lv_rating.
+        ls_creditrating-date_to      = lv_validtodate.
+        ls_creditrating-grade_method = ls_s4bprating_chg-grademethod.
+        APPEND ls_creditrating TO lt_creditrating.
+
+*       Mark field that needs to been changed
+        ls_creditratingx-grade = abap_true.
+        APPEND ls_creditratingx TO lt_creditratingx.
+
+        zcl_rtr_modify_bp_creditrating=>create_instance( )->change(
+          EXPORTING
+            iv_businesspartner = lv_customerno
+          CHANGING
+            ct_ratingtable     = lt_creditrating
+            ct_ratingtablex    = lt_creditratingx
+            ct_return          = lt_return
+        ).
+      ELSE.
+        lv_error = abap_true.
+      ENDIF.
+
+*     Raise error if record not found
+      IF lv_error EQ abap_true.
+        INSERT VALUE #( %tky = <lfs_key>-%cid  ) INTO TABLE failed-zrtr_r_bpcredit_rating.
+        INSERT VALUE #( %tky = <lfs_key>-%param
+                        %msg = new_message_with_text(
+                    severity = if_abap_behv_message=>severity-error
+                    text     = TEXT-002 ) "Record not found.
+        ) INTO TABLE reported-zrtr_r_bpcredit_rating.
+*     Raise error if error message returned
+      ELSEIF line_exists( lt_return[ type = 'E' number = '016' ] ) .
+        INSERT VALUE #( %tky = <lfs_key>-%cid  ) INTO TABLE failed-zrtr_r_bpcredit_rating.
+        INSERT VALUE #( %tky = <lfs_key>-%param
+                        %msg = new_message_with_text(
+                    severity = if_abap_behv_message=>severity-error
+                    text     = TEXT-001 ) "Validity ranges for rating procedure overlap.
+        ) INTO TABLE reported-zrtr_r_bpcredit_rating.
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS lsc_zrtr_r_bpcredit_rating DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+
+    METHODS finalize REDEFINITION.
+
+    METHODS check_before_save REDEFINITION.
+
+    METHODS save REDEFINITION.
+
+    METHODS cleanup REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+ENDCLASS.
+
+CLASS lsc_zrtr_r_bpcredit_rating IMPLEMENTATION.
+
+  METHOD finalize.
+  ENDMETHOD.
+
+  METHOD check_before_save.
+  ENDMETHOD.
+
+  METHOD save.
+  ENDMETHOD.
+
+  METHOD cleanup.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+ENDCLASS.
