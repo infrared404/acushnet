@@ -1,0 +1,4 @@
+@EndUserText.label: 'BP Credit Rating Service Definition'
+define service ZRTR_API_BP_CREDIT_RTG_O4 {
+  expose ZRTR_C_BPCREDIT_RATING as BPCreditRating;
+}
