@@ -1,0 +1,22 @@
+INTERFACE zif_rtr_modify_bp_creditrating
+  PUBLIC .
+
+  TYPES:
+    tt_creditrating  TYPE TABLE OF zrtr_creditrating_s .
+  TYPES:
+    tt_creditratingx TYPE TABLE OF zrtr_creditratingx_s .
+
+  METHODS change
+    IMPORTING
+      !iv_businesspartner TYPE bapi_bus_partner_fs-partner_id
+    CHANGING
+      !ct_ratingtable     TYPE tt_creditrating
+      !ct_ratingtablex    TYPE tt_creditratingx
+      !ct_return          TYPE bapirettab .
+  METHODS add
+    IMPORTING
+      !iv_businesspartner TYPE bapi_bus_partner_fs-partner_id
+    CHANGING
+      !ct_ratingtable     TYPE tt_creditrating
+      !ct_return          TYPE bapirettab .
+ENDINTERFACE.
