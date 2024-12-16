@@ -1,0 +1,29 @@
+""" new extension point for input order idoc""
+DATA: lo_badi_idoc_input    TYPE REF TO zbadi_idoc_input_socreate.
+
+GET BADI lo_badi_idoc_input.
+
+TRY.
+    CALL BADI lo_badi_idoc_input->input_orders_idoc
+      EXPORTING
+        is_edidc     = dedidc
+        it_edidd     = dedidd[]
+      CHANGING
+        cv_xwldat    = xwldat
+        ct_dxvbap    = dxvbap[]
+        ct_dxvbep    = dxvbep[]
+        ct_dxvbadr   = dxvbadr[]
+        ct_dxvbuv    = dxvbuv[]
+        ct_dxkomv    = dxkomv[]
+        ct_dxvekp    = dxvekp[]
+        ct_dyvekp    = dyvekp[]
+        ct_dxe1edkt2 = dxe1edkt2[]
+        ct_dxe1edpt2 = dxe1edpt2[]
+        ct_derrtab   = derrtab[]
+        ct_dd_flag_p = dd_flag_p[]
+        cs_dxvbak    = dxvbak
+        cs_dd_flag_k = dd_flag_k.
+
+  CATCH cx_ble_runtime_error INTO DATA(lx_runtime_error).
+
+ENDTRY.
