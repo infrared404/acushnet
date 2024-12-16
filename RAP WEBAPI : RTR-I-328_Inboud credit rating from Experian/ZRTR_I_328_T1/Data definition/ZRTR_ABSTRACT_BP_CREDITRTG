@@ -1,0 +1,8 @@
+@EndUserText.label: 'Abstract View for BP Credit Rating'
+define abstract entity ZRTR_ABSTRACT_BP_CREDITRTG
+//  with parameters parameter_name : parameter_type
+{
+  key CustomerNumber : abap.char( 10 );
+  key Rating         : abap.char( 10 );
+    ValidToDate    : abap.char( 8 );
+}
