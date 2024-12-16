@@ -1,0 +1,18 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Consumption View for BP Credit Rating'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZRTR_C_BPCREDIT_RATING as projection on ZRTR_R_BPCREDIT_RATING
+{
+    key Partner,
+    key Timestamp,
+    key Diftval,
+    key DateTo,
+    key GradeMethod,
+    DateFrom,
+    FlgPermit,
+    Grade,
+    Tendency,
+    DateWhen,
+    FlgDefault,
+    Text
+}
