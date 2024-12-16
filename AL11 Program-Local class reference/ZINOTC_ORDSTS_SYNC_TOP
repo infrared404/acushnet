@@ -1,0 +1,57 @@
+*&---------------------------------------------------------------------*
+*& Include          ZINOTC_ORDSTS_SYNC_TOP
+*&---------------------------------------------------------------------*
+CLASS lcl_ordsts_sync DEFINITION DEFERRED.
+
+CONSTANTS : gc_comma       TYPE c LENGTH 1 VALUE ',',
+            gc_tab         TYPE c VALUE cl_abap_char_utilities=>horizontal_tab,
+            gc_error       TYPE c LENGTH 1 VALUE 'E',
+            gc_success     TYPE c LENGTH 1 VALUE 'S',
+            gc_enter_fcode TYPE sy-ucomm   VALUE 'ONLI' ##NEEDED.
+CONSTANTS : gc_ricef_id       TYPE ze_ricef_id VALUE 'OTC-I-270',
+            gc_sub_area       TYPE ze_sub_area VALUE 'ORDSTS_SYNC',
+            gc_file_path      TYPE ze_fieldname VALUE 'DEFAULT_FILE_PATH',
+            gc_test_file_path TYPE ze_fieldname VALUE 'TEST_FILE_PATH'.
+TABLES: sscrfields.
+
+CLASS lcl_ordsts_sync DEFINITION FINAL.
+  PUBLIC SECTION.
+
+
+    TYPES: BEGIN OF lty_ordsts_data,
+             knref               TYPE knvp-knref, "Customer Name
+             vbeln               TYPE vbak-vbeln, "Sales Order Number
+             bstnk               TYPE vbak-bstnk, "Order ID (Customer Reference)
+             vdatu               TYPE vbak-vdatu, "Requested Delivery Date
+             erdat               TYPE vbak-erdat, "Creation Date
+             erzet               TYPE vbak-erzet, "Creation type
+             ordsts              TYPE string, "Order status
+             zz1_mchl1_brand_prd TYPE string, "mara-zz1_mchl1_brand_prd,"Product Group
+             werks               TYPE string, "vbap-werks, "Plant
+             lifsk               TYPE string, "vbak-lifsk, "Order Block
+           END OF lty_ordsts_data,
+
+           BEGIN OF lty_csv,
+             csv_data TYPE c LENGTH 1000,
+           END OF lty_csv.
+    DATA : lt_ordsts_data TYPE TABLE OF lty_ordsts_data,
+           lt_csv         TYPE TABLE OF lty_csv.
+    DATA : ls_csv         TYPE lty_csv,
+           ls_ordsts_data TYPE lty_ordsts_data.
+    DATA : lv_file_path      TYPE epsdirnam,
+           lv_test_file_path TYPE epsdirnam.
+    DATA lv_status TYPE string.
+    DATA lv_ucomm    TYPE sy-ucomm.
+
+    METHODS : constructor,
+      main,
+      validate_app_path,
+      get_data,
+      populate_header_data,
+      convert_to_csv EXPORTING is_ordsts_data TYPE lty_ordsts_data
+                     RETURNING VALUE(es_csv)  TYPE lty_csv,
+      populate_csv_data,
+      write_to_app_server.
+
+
+ENDCLASS.
