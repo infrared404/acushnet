@@ -1,0 +1,25 @@
+*&---------------------------------------------------------------------*
+*& Include          ZINOTC_ORDSTS_SYNC_O01
+*&---------------------------------------------------------------------*
+ TABLES : vbak,tvak,t176,kna1.
+
+ SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+   PARAMETERS : p_vkorg TYPE tvko-vkorg OBLIGATORY,
+                p_vtweg TYPE tvtw-vtweg OBLIGATORY.
+
+   SELECT-OPTIONS  s_kunnr FOR kna1-kunnr OBLIGATORY NO INTERVALS.
+ SELECTION-SCREEN END OF BLOCK b1.
+
+ SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
+   SELECT-OPTIONS : s_docdat FOR  vbak-erdat OBLIGATORY.
+ SELECTION-SCREEN END OF BLOCK b2.
+
+ SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE TEXT-003.
+   SELECT-OPTIONS : s_ordtyp FOR tvak-auart NO INTERVALS,
+                    s_potyp FOR t176-bsark NO INTERVALS.
+ SELECTION-SCREEN END OF BLOCK b3.
+
+ SELECTION-SCREEN BEGIN OF BLOCK b4 WITH FRAME TITLE TEXT-004.
+   PARAMETERS : p_file TYPE epsdirnam MODIF ID app DEFAULT '/usr/sap/trans/Interfaces/Outbound' OBLIGATORY,                          " Application file path
+                p_test TYPE flag AS CHECKBOX DEFAULT space.
+ SELECTION-SCREEN END OF BLOCK b4.
