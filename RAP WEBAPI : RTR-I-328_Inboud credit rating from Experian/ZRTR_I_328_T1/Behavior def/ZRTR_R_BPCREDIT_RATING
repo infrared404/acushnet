@@ -1,0 +1,12 @@
+unmanaged implementation in class zbp_rtr_r_bpcredit_rating unique;
+strict ( 2 );
+
+define behavior for ZRTR_R_BPCREDIT_RATING //alias <alias_name>
+//late numbering
+lock master
+authorization master ( instance )
+//etag master <field_name>
+{
+  field ( readonly : update ) Partner, Diftval, Timestamp, GradeMethod, DateTo;
+  static action ( features : global ) UpdateBPCreditRating parameter ZRTR_ABSTRACT_BP_CREDITRTG result [1..*] bapiret2;
+}
