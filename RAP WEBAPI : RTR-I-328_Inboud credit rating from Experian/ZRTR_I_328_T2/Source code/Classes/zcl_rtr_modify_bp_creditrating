@@ -1,0 +1,42 @@
+CLASS zcl_rtr_modify_bp_creditrating DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PRIVATE .
+
+  PUBLIC SECTION.
+
+    CLASS-METHODS create_instance
+      RETURNING
+        VALUE(result) TYPE REF TO zif_rtr_modify_bp_creditrating .
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+    METHODS constructor .
+ENDCLASS.
+
+CLASS zcl_rtr_modify_bp_creditrating IMPLEMENTATION.
+
+  METHOD create_instance.
+*&---------------------------------------------------------------------*
+*& Method create_instance.                                             *
+*&---------------------------------------------------------------------*
+*& Title        :  Create instance to modify BP Credit Rating
+*& Item Ref     :  RTR-I-328
+*& Date         :  10/17/2024
+*& Author       :  Ahmad Ammar/AAMMAR
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 11/27/2024   CSOO          DS4K901603  Resume to complete the       *
+*&                                        remaining development after  *
+*&                                        SAP OSS Notes implementation.*
+*&---------------------------------------------------------------------*
+    result = NEW zcl_rtr_bp_creditrtg_upd(  ).
+  ENDMETHOD.
+
+  METHOD constructor.
+  ENDMETHOD.
+
+ENDCLASS.
