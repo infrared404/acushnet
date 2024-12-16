@@ -1,0 +1,17 @@
+@EndUserText.label : 'Credit Rating Update structure'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zrtr_creditratingx_s {
+
+  timestamp    : bapiupdate;
+  diftval      : bapiupdate;
+  date_to      : bapiupdate;
+  grade_method : bapiupdate;
+  date_from    : bapiupdate;
+  flg_permit   : bapiupdate;
+  grade        : bapiupdate;
+  tendency     : bapiupdate;
+  date_when    : bapiupdate;
+  flg_default  : bapiupdate;
+  text         : bapiupdate;
+
+}
