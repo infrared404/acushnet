@@ -1,0 +1,17 @@
+@EndUserText.label : 'Credit Rating structure'
+@AbapCatalog.enhancement.category : #EXTENSIBLE_CHARACTER_NUMERIC
+define structure zrtr_creditrating_s {
+
+  timestamp    : zde_timestamp;
+  diftval      : zde_dftval;
+  date_to      : zde_date_to;
+  grade_method : zde_grade_method;
+  date_from    : zde_date_from;
+  flg_permit   : zde_flg_permit;
+  grade        : zde_grade;
+  tendency     : zde_tendency;
+  date_when    : zde_date_when;
+  flg_default  : zde_flg_default;
+  text         : zde_text;
+
+}
