@@ -1,5 +1,0 @@
-CLASS zbp_rtr_r_bpcredit_rating DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zrtr_r_bpcredit_rating.
-ENDCLASS.
-
-CLASS zbp_rtr_r_bpcredit_rating IMPLEMENTATION.
-ENDCLASS.
