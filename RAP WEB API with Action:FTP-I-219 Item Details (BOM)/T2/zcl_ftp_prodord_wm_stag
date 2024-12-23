@@ -1,0 +1,55 @@
+CLASS zcl_ftp_prodord_wm_stag DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    TYPES:
+      tt_order         TYPE TABLE OF bapi_order_key,
+      tt_detail_return TYPE TABLE OF bapi_order_return.
+
+    CLASS-METHODS prodord_wm_staging
+      EXPORTING
+        iv_return     TYPE bapiret2
+      CHANGING
+        !orders       TYPE tt_order
+        !detail_return TYPE tt_detail_return.
+
+        CLASS-METHODS call_bapi_commit_transaction.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS zcl_ftp_prodord_wm_stag IMPLEMENTATION.
+
+
+  METHOD prodord_wm_staging.
+
+  CALL FUNCTION 'Z_FM_FTP_WM_STAGING' DESTINATION 'NONE'
+      IMPORTING
+        return = iv_return
+      TABLES
+        orders = orders.
+        detail_return = detail_return.
+
+*    CALL FUNCTION 'BAPI_PRODORD_WM_MAT_STAGING' DESTINATION 'NONE'
+*      IMPORTING
+*        return = iv_return
+*      TABLES
+*        orders = orders.
+*        detail_return = detail_return.
+
+*        zcl_ftp_prodord_wm_stag=>call_bapi_commit_transaction(  ).
+  ENDMETHOD.
+
+    METHOD call_bapi_commit_transaction.
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT' DESTINATION 'NONE'
+      EXPORTING
+        wait = abap_true.
+  ENDMETHOD.
+
+ENDCLASS.
