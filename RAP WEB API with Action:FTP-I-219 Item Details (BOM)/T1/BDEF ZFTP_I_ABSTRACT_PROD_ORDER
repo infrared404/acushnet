@@ -1,0 +1,14 @@
+abstract;
+strict ( 2 );
+with hierarchy;
+
+define behavior for ZFTP_I_ABSTRACT_PROD_ORDER alias ProductionOrder
+{
+
+ association _Component;
+
+}
+
+define behavior for ZFTP_I_ABSTRACT_ORDER_COMP alias Components {
+
+}
