@@ -1,0 +1,58 @@
+FUNCTION z_fm_ftp_wm_staging
+  IMPORTING
+    VALUE(work_process_group) LIKE bapi_order_cntrl_param-work_proc_group DEFAULT 'COWORK_BAPI'
+    VALUE(work_process_max) LIKE bapi_order_cntrl_param-work_proc_max DEFAULT 99
+  EXPORTING
+    VALUE(return) LIKE bapiret2
+  TABLES
+    orders LIKE bapi_order_key
+    detail_return LIKE bapi_order_return OPTIONAL
+    application_log LIKE bapi_order_application_log OPTIONAL.
+
+
+
+
+
+  DATA: ls_bapi_order_return TYPE bapi_order_return.
+  DATA: lt_bapi_order_return TYPE STANDARD TABLE OF bapi_order_return.
+
+  LOOP AT orders ASSIGNING FIELD-SYMBOL(<lf_orders>).
+    ls_bapi_order_return-order_number = <lf_orders>-order_number.
+    APPEND ls_bapi_order_return TO lt_bapi_order_return.
+  ENDLOOP.
+
+  CALL FUNCTION 'BAPI_PRODORD_WM_MAT_STAGING'
+    IMPORTING
+      return        = return
+    TABLES
+      orders        = orders
+      detail_return = detail_return.
+
+  SELECT FROM
+        afko AS a
+        INNER JOIN resb AS b ON ( a~rsnum = b~rsnum )
+        INNER JOIN @lt_bapi_order_return AS i ON ( i~order_number = a~aufnr )
+        FIELDS
+    a~aufnr,
+    b~rspos,
+    b~rsart,
+    b~berkz
+INTO TABLE @DATA(lt_staging_ind).
+
+  READ TABLE lt_staging_ind ASSIGNING FIELD-SYMBOL(<lf_berkz_5>)
+                                  INDEX 1.
+  IF <lf_berkz_5> IS ASSIGNED.
+    IF <lf_berkz_5>-berkz = '5'.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+          return-type = 'S'.
+    ELSE.
+    return-type = 'E'.
+    ENDIF.
+    UNASSIGN <lf_berkz_5>.
+  ENDIF.
+
+
+
+ENDFUNCTION.
