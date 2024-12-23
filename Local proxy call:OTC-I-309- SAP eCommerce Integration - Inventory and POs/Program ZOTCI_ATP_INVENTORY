@@ -1,0 +1,66 @@
+*&---------------------------------------------------------------------*
+*& Report ZOTCI_ATP_INVENTORY                                          *
+*&---------------------------------------------------------------------*
+*& Title        :  This program extracts ATP (Available to Promise)    *
+*&                 invetory data                                       *
+*& Item Ref     :  OTC-I-309                                           *
+*& Date         :  10/02/2024                                          *
+*& Author       :  Ahmad Aizat/AALI                                    *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 10/02/2024   AALI    DS4K901431   Initial Development               *
+*&---------------------------------------------------------------------*
+REPORT zotci_atp_inventory.
+
+TABLES: sscrfields.
+
+*----------------------------------------------------------------------*
+*                       T O P  I N C L U D E                           *
+*----------------------------------------------------------------------*
+INCLUDE zinotc_atp_inventory_top.
+
+*----------------------------------------------------------------------*
+*            S E L E C T I O N  S C R E E N  I N C L U D E             *
+*----------------------------------------------------------------------*
+INCLUDE zinotc_atp_inventory_o01.
+
+*----------------------------------------------------------------------*
+*              I M P L E M E N T A T I O N  I N C L U D E              *
+*----------------------------------------------------------------------*
+INCLUDE zinotc_atp_inventory_i01.
+
+*----------------------------------------------------------------------*
+*                    I N I T I A L I Z A T I O N                       *
+*----------------------------------------------------------------------*
+INITIALIZATION.
+
+  DATA(go_atp_inventory) = NEW lcl_atp_inventory( ) ##NEEDED.
+
+*----------------------------------------------------------------------*
+*               AT SELECTION SCREEN ON VALUE-REQUEST                   *
+*----------------------------------------------------------------------*
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+
+  go_atp_inventory->open_file_dialog( ).
+
+*----------------------------------------------------------------------*
+*                A T  S E L E C T I O N   S C R E E N                  *
+*----------------------------------------------------------------------*
+AT SELECTION-SCREEN.
+  go_atp_inventory->lv_ucomm = sscrfields-ucomm.
+
+  " Validate when user clicks 'Execute'
+  IF go_atp_inventory->lv_ucomm EQ gc_enter_fcode.  " ONLI (F8)
+      " Check directory path
+      go_atp_inventory->validate_app_path( ).
+  ENDIF.
+
+*----------------------------------------------------------------------*
+*              S T A R T  -  O F  - S E L E C T I O N                  *
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+
+  go_atp_inventory->main( ).
