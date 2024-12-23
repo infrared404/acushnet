@@ -1,0 +1,89 @@
+CLASS zcl_atp_check_proxy DEFINITION
+  PUBLIC
+  INHERITING FROM zcl_base_proxy FINAL
+  CREATE PRIVATE.
+
+  PUBLIC SECTION.
+    INTERFACES zif_atp_check_proxy.
+
+    "! Factory method that is used to return the instance of <strong>ZIF_ATP_CHECK_PROXY</strong>.
+    "!
+    "! @parameter result | The instance object
+    CLASS-METHODS create
+      RETURNING VALUE(result) TYPE REF TO zif_atp_check_proxy.
+
+  PROTECTED SECTION.
+
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+CLASS zcl_atp_check_proxy IMPLEMENTATION.
+  METHOD create.
+    result = NEW zcl_atp_check_proxy( iv_service_id      = 'API_AVAIL_TO_PROMISE_CHECK'
+                                      iv_service_version = '0001'
+                                      iv_repository_id   = 'SRVD_A2X' ).
+  ENDMETHOD.
+
+  METHOD zif_atp_check_proxy~get_atp_check_data.
+    CONSTANTS lc_customer_grp TYPE charccatalogcharacteristicname VALUE 'SD-CUSTOMERGROUP'.
+    CONSTANTS lc_ship_point   TYPE charccatalogcharacteristicname VALUE 'SD_I-SHIPPINGPOINT'.
+    CONSTANTS lc_sls_doc_type TYPE charccatalogcharacteristicname VALUE 'SD-SALESDOCUMENTTYPE'.
+    CONSTANTS lc_we_cust      TYPE charccatalogcharacteristicname VALUE 'SD_I_PAR_PF.WE-CUSTOMER'.
+
+    DATA ls_key       TYPE zif_atp_check_proxy~ty_atp_key.
+    DATA ls_parameter TYPE zif_atp_check_proxy~ty_param.
+    DATA lt_response  TYPE STANDARD TABLE OF D_AvailyChkAvailyWthoutResvnR.
+    DATA ls_atp_data  TYPE zif_atp_check_proxy~ty_atp_data.
+
+    GET TIME STAMP FIELD FINAL(lv_timestamp).
+
+    ls_key = VALUE #( product = iv_matnr
+                      plant   = iv_werks ).
+    TRY.
+        FINAL(proxy_client) = get_proxy_client( ).
+        FINAL(entity_resource) = proxy_client->create_resource_for_entity_set( 'RLVTPRODUCTPLANT' )->navigate_with_key(
+                                                                                                      ls_key ).
+        FINAL(action_resource) = entity_resource->bind_action( 'AI_D84EEB58386FD7B40B533345E31' ).
+        FINAL(action_request) = action_resource->create_request( ).
+
+        ls_parameter = VALUE #( ap_92dc5ecf624aa7eec26e95f7a95                            = 'A'
+                                ap_35ea9bec090ad8ba3c8e53e365f                            = 999999
+                                ap_e089916a86969861bfb4243c2f0                            = 'EA'
+                                ap_3e4f3bda79da082dfc5669071c1                            = lv_timestamp
+                                ap_a404e5c07ea449902703d5eac25                            = abap_true
+                                ap_4ef84ab6aecb7bd5f6f9696981c-atprelevantdocumentpurpose = 'SLS'
+                                ap_4ef84ab6aecb7bd5f6f9696981c-_characteristics           = VALUE #(
+                                    CharcCatalogCharcValue = ''
+                                    ( CharcCatalogCharacteristicName = lc_customer_grp )
+                                    ( CharcCatalogCharacteristicName = lc_ship_point )
+                                    ( CharcCatalogCharacteristicName = lc_sls_doc_type )
+                                    ( CharcCatalogCharacteristicName = lc_we_cust ) ) ).
+
+        action_request->set_parameter( ls_parameter ).
+        action_request->set_if_match( '*' ).
+        FINAL(action_response) = action_request->execute( ).
+        IF action_response->has_business_data( ) = abap_false.
+          RETURN.
+        ENDIF.
+        action_response->get_business_data( IMPORTING ea_business_data = lt_response ).
+        IF lt_response IS NOT INITIAL.
+          FINAL(ls_response) = lt_response[ 1 ].
+          CONVERT TIME STAMP ls_response-ConfdProdAvailabilityUTCDteTme TIME ZONE ls_response-ConfdProdAvailabilityTimeZone INTO DATE FINAL(lv_atp_date).
+          ls_atp_data = VALUE #( atp_qty  = ls_response-ConfirmedQuantityInBaseUnit
+                                 atp_date = lv_atp_date ).
+
+          result = ls_atp_data.
+        ELSE.
+          RETURN.
+        ENDIF.
+
+      CATCH /iwbep/cx_gateway INTO FINAL(ex_gateway).
+        RAISE EXCEPTION NEW zcx_base_proxy( is_textid      = zcx_base_proxy=>c_consume_odata_fail ##STMNT_EXIT
+                                            is_previous    = ex_gateway
+                                            iv_key_id      = mv_service_id
+                                            iv_key_version = mv_service_version ).
+        RETURN.
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.
