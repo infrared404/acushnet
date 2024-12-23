@@ -1,0 +1,28 @@
+
+
+/sap/opu/odata4/sap/api_avail_to_promise_check/srvd_a2x/sap/apiavailtopromisecheck/0001/RlvtProductPlant(Product='T2028C-12PL4_ST',Plant='M120')/SAP__self.CheckAvailabilityWithoutResvn
+
+{
+  "ATPCheckingRule" : "A",
+  "RequestedQuantityInBaseUnit" : 1000,
+  "BaseUnit" : "EA",
+  "ProdAllocIsToBeConsidered" : true,
+  "ProductAvailabilityUTCDateTime" : "2024-11-25T18:00:00Z",
+  "_DocumentAttributes" : {
+    "ATPRelevantDocumentPurpose" : "SLS",
+    "_Characteristics" : [
+      {
+        "CharcCatalogCharacteristicName" : "SD_I-SHIPPINGPOINT",
+        "CharcCatalogCharcValue" : "M120"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD-SALESDOCUMENTTYPE",
+        "CharcCatalogCharcValue" : "XECO"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD_I_PAR_PF.WE-CUSTOMER",
+        "CharcCatalogCharcValue" : "2000000011"
+      }
+    ]
+  }
+}
