@@ -1,0 +1,121 @@
+/sap/opu/odata4/sap/api_avail_to_promise_check/srvd_a2x/sap/apiavailtopromisecheck/0001/$batch
+
+--batch_001
+OData-Version: 4.0
+Content-Type: multipart/mixed; boundary=changeset_001_1
+Content-Transfer-Encoding: binary
+
+--changeset_001_1
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 1
+
+POST RlvtProductPlant(Product='T2028C-12PL4',Plant='M120')/SAP__self.CheckAvailabilityWithoutResvn  HTTP/1.1
+OData-Version: 4.0
+OData-MaxVersion: 4.0
+Content-Type: application/json;odata.metadata=minimal
+Accept: application/json;odata.metadata=minimal
+Accept-Language: en
+
+{
+  "ATPCheckingRule" : "A",
+  "RequestedQuantityInBaseUnit" : 1000,
+  "BaseUnit" : "EA",
+  "ProdAllocIsToBeConsidered" : true,
+  "ProductAvailabilityUTCDateTime" : "2024-11-15T18:00:00Z",
+  "_DocumentAttributes" : {
+    "ATPRelevantDocumentPurpose" : "SLS",
+    "_Characteristics" : [
+      {
+        "CharcCatalogCharacteristicName" : "SD_I-SHIPPINGPOINT",
+        "CharcCatalogCharcValue" : "M120"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD-SALESDOCUMENTTYPE",
+        "CharcCatalogCharcValue" : "XECO"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD_I_PAR_PF.WE-CUSTOMER",
+        "CharcCatalogCharcValue" : "2000000011"
+      }
+    ]
+  }
+}
+
+--changeset_001_1
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 2
+
+POST RlvtProductPlant(Product='T2028C-12PL4',Plant='M120')/SAP__self.CheckAvailabilityWithoutResvn  HTTP/1.1
+OData-Version: 4.0
+OData-MaxVersion: 4.0
+Content-Type: application/json;odata.metadata=minimal
+Accept: application/json;odata.metadata=minimal
+Accept-Language: en
+
+{
+  "ATPCheckingRule" : "A",
+  "RequestedQuantityInBaseUnit" : 1000,
+  "BaseUnit" : "EA",
+  "ProdAllocIsToBeConsidered" : true,
+  "ProductAvailabilityUTCDateTime" : "2024-11-12T18:00:00Z",
+  "_DocumentAttributes" : {
+    "ATPRelevantDocumentPurpose" : "SLS",
+    "_Characteristics" : [
+      {
+        "CharcCatalogCharacteristicName" : "SD_I-SHIPPINGPOINT",
+        "CharcCatalogCharcValue" : "M120"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD-SALESDOCUMENTTYPE",
+        "CharcCatalogCharcValue" : "XECO"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD_I_PAR_PF.WE-CUSTOMER",
+        "CharcCatalogCharcValue" : "2000000011"
+      }
+    ]
+  }
+}
+
+--changeset_001_1
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 3
+
+POST RlvtProductPlant(Product='T2028C-12PL4',Plant='M120')/SAP__self.CheckAvailabilityWithoutResvn  HTTP/1.1
+OData-Version: 4.0
+OData-MaxVersion: 4.0
+Content-Type: application/json;odata.metadata=minimal
+Accept: application/json;odata.metadata=minimal
+Accept-Language: en
+
+{
+  "ATPCheckingRule" : "A",
+  "RequestedQuantityInBaseUnit" : 1000,
+  "BaseUnit" : "EA",
+  "ProdAllocIsToBeConsidered" : true,
+  "ProductAvailabilityUTCDateTime" : "2024-11-11T18:00:00Z",
+  "_DocumentAttributes" : {
+    "ATPRelevantDocumentPurpose" : "SLS",
+    "_Characteristics" : [
+      {
+        "CharcCatalogCharacteristicName" : "SD_I-SHIPPINGPOINT",
+        "CharcCatalogCharcValue" : "M120"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD-SALESDOCUMENTTYPE",
+        "CharcCatalogCharcValue" : "XECO"
+      },
+      {
+        "CharcCatalogCharacteristicName" : "SD_I_PAR_PF.WE-CUSTOMER",
+        "CharcCatalogCharcValue" : "2000000011"
+      }
+    ]
+  }
+}
+
+--changeset_001_1--
+
+--batch_001--
