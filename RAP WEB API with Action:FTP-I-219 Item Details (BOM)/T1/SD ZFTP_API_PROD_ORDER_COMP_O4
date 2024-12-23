@@ -1,0 +1,4 @@
+@EndUserText.label: 'Prod Order Comp Service Definition'
+define service ZFTP_API_PROD_ORDER_COMP_O4 {
+  expose ZFTP_C_PROD_ORDER_COMP as ProductionOrderComponent;
+}
