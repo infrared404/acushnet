@@ -1,0 +1,62 @@
+CLASS zcx_base_proxy DEFINITION
+  PUBLIC
+  INHERITING FROM cx_static_check
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_t100_message.
+    INTERFACES if_t100_dyn_msg.
+
+    CONSTANTS:
+      BEGIN OF c_proxy_create_fail,
+        msgid TYPE symsgid      VALUE 'ZCA',
+        msgno TYPE symsgno      VALUE '001',
+        attr1 TYPE scx_attrname VALUE 'MV_KEY_ID',
+        attr2 TYPE scx_attrname VALUE 'MV_KEY_VERSION',
+        attr3 TYPE scx_attrname VALUE '',
+        attr4 TYPE scx_attrname VALUE '',
+      END OF c_proxy_create_fail,
+
+      BEGIN OF c_consume_odata_fail,
+        msgid TYPE symsgid      VALUE 'ZCA',
+        msgno TYPE symsgno      VALUE '005',
+        attr1 TYPE scx_attrname VALUE 'MV_KEY_ID',
+        attr2 TYPE scx_attrname VALUE 'MV_KEY_VERSION',
+        attr3 TYPE scx_attrname VALUE '',
+        attr4 TYPE scx_attrname VALUE '',
+      END OF c_consume_odata_fail.
+
+    DATA mv_key_id      TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_id.
+    DATA mv_key_version TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_version.
+
+    "! The constructor method.
+    "!
+    "! @parameter IS_TEXTID      | T100 key with mapping of parameters to attributes
+    "! @parameter IS_PREVIOUS    | Exception Mapped to the Current Exception
+    "! @parameter IV_KEY_ID      | Service ID
+    "! @parameter IV_KEY_VERSION | Service Version
+    METHODS constructor
+      IMPORTING is_textid      LIKE if_t100_message=>t100key                                       OPTIONAL
+                is_previous    LIKE previous                                                       OPTIONAL
+                iv_key_id      TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_id      OPTIONAL
+                iv_key_version TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_version OPTIONAL.
+
+  PROTECTED SECTION.
+
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+CLASS zcx_base_proxy IMPLEMENTATION.
+  METHOD constructor ##ADT_SUPPRESS_GENERATION.
+    super->constructor( previous = previous ).
+    mv_key_id      = iv_key_id.
+    mv_key_version = iv_key_version.
+    CLEAR me->textid.
+    IF textid IS INITIAL.
+      if_t100_message~t100key = if_t100_message=>default_textid.
+    ELSE.
+      if_t100_message~t100key = is_textid.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
