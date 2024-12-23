@@ -1,0 +1,93 @@
+*&---------------------------------------------------------------------*
+*& Include ZINOTC_ATP_INVENTORY_TOP
+*&---------------------------------------------------------------------*
+*& Title        :  This include stores program's global                *
+*&                 declarations                                        *
+*& Item Ref     :  OTC-I-309                                           *
+*& Date         :  10/02/2024                                          *
+*& Author       :  Ahmad Aizat/AALI                                    *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 10/02/2024   AALI    DS4K901431   Initial Development               *
+*&---------------------------------------------------------------------*
+CLASS lcl_atp_inventory DEFINITION DEFERRED.
+DATA gc_enter_fcode   TYPE sy-ucomm   VALUE 'ONLI' ##NEEDED.
+
+CONSTANTS gc_error            TYPE c LENGTH 1 VALUE 'E'.
+CONSTANTS gc_success          TYPE c LENGTH 1 VALUE 'S'.
+CONSTANTS gc_pipe             TYPE c LENGTH 1 VALUE '|'.
+CONSTANTS gc_char_kunnr       TYPE string     VALUE 'Sold-to Party - Customer Number' ##no_text.
+CONSTANTS gc_char_kdgrp       TYPE string     VALUE 'Customer Group' ##no_text.
+
+CLASS lcl_atp_inventory DEFINITION FINAL.
+  PUBLIC SECTION.
+    TYPES: BEGIN OF lty_atp_inventory,
+             supplyprotectionuuid      TYPE sup_object_uuid,
+             supplyprotectionname      TYPE sup_object_name,
+             material                  TYPE matnr,
+             materialname              TYPE maktx,
+             plant                     TYPE werks_d,
+             unitofmeasure             TYPE meins,
+             supprotcharcctlgpathuuid  TYPE sup_charc_catalog_path_uuid,
+             supprotcharcctlgpathintid TYPE sup_charc_catalog_path_id,
+             characteristic            TYPE sup_charc_text,
+             supprotcharc01valueid     TYPE sup_charc_value,
+             customer                  TYPE kunnr,
+           END OF lty_atp_inventory.
+
+    TYPES: BEGIN OF lty_atp_data,
+             werks          TYPE werks_d,
+             matnr          TYPE matnr,
+             kunnr          TYPE kunnr,
+             maktx          TYPE maktx,
+             mtart          TYPE mtart,
+             atp_qty        TYPE zd_atp_qty,
+             atp_date       TYPE zd_atp_date,
+             price_category TYPE zd_price_category,
+             region_1       TYPE zd_region_1,
+             region_2       TYPE zd_region_2,
+             region_3       TYPE zd_region_3,
+           END OF lty_atp_data.
+
+    TYPES: BEGIN OF lty_atp_record,
+             werks    TYPE werks_d,
+             matnr    TYPE matnr,
+             atp_qty  TYPE zd_atp_qty,
+             atp_date TYPE zd_atp_date,
+           END OF lty_atp_record.
+
+    TYPES: BEGIN OF lty_csv,
+             csv_data TYPE c LENGTH 1000,
+           END OF lty_csv.
+    TYPES: BEGIN OF lty_knvv,
+             kdgrp TYPE kdgrp,
+             vtweg TYPE vtweg,
+             kunnr TYPE kunnr,
+           END OF lty_knvv.
+    TYPES ltt_atp_inventory TYPE STANDARD TABLE OF lty_atp_inventory.
+    TYPES ltt_atp_data      TYPE STANDARD TABLE OF lty_atp_data.
+    TYPES ltt_knvv          TYPE SORTED TABLE OF lty_knvv WITH UNIQUE KEY kdgrp vtweg kunnr.
+    TYPES ltt_atp_record    TYPE STANDARD TABLE OF lty_atp_record.
+
+    DATA lv_ucomm    TYPE sy-ucomm.
+    DATA ls_atp_csv  TYPE lty_csv.
+    DATA lt_atp_csv  TYPE STANDARD TABLE OF lty_csv.
+    DATA lt_atp_data TYPE ltt_atp_data.
+
+    METHODS main.
+    METHODS open_file_dialog.
+    METHODS validate_app_path.
+    METHODS get_data.
+    METHODS populate_header_data.
+
+    METHODS convert_to_csv EXPORTING is_atp_data   TYPE lty_atp_data
+                           RETURNING VALUE(es_csv) TYPE lty_csv.
+
+    METHODS write_to_app_server.
+    METHODS populate_data.
+    METHODS update_custom_table.
+
+ENDCLASS.
