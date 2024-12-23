@@ -1,0 +1,24 @@
+*&---------------------------------------------------------------------*
+*& Include ZINOTC_ATP_INVENTORY_O01
+*&---------------------------------------------------------------------*
+*& Title        :  This include stores program's selection screen      *
+*&                 declarations                                        *
+*& Item Ref     :  OTC-I-309                                           *
+*& Date         :  10/02/2024                                          *
+*& Author       :  Ahmad Aizat/AALI                                    *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 10/02/2024   AALI    DS4K901431   Initial Development               *
+*&---------------------------------------------------------------------*
+DATA ls_werks TYPE werks_d.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
+  SELECT-OPTIONS s_werks FOR ls_werks.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME.
+  PARAMETERS p_file TYPE epsdirnam MODIF ID app DEFAULT '/usr/sap/trans/Interfaces/Outbound' OBLIGATORY.                             " Application file path
+SELECTION-SCREEN END OF BLOCK b2.
