@@ -1,0 +1,9 @@
+projection;
+strict ( 2 );
+
+define behavior for ZFTP_C_PROD_ORDER_COMP //alias <alias_name>
+{
+
+  use action UpdateComponentOrder;
+  use action ProdOrdStaging;
+}
