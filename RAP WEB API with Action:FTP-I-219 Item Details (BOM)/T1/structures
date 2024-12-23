@@ -1,0 +1,21 @@
+@EndUserText.label : 'Production Order API Result Out Structure'
+@AbapCatalog.enhancement.category : #EXTENSIBLE_CHARACTER_NUMERIC
+define structure zftp_prd_api_out_s {
+
+  message_type : bapi_mtype;
+  id           : symsgid;
+  number       : symsgno;
+  message      : bapi_msg;
+
+}
+
+
+
+@EndUserText.label : 'Structure for Return Message FTP-I-219'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zftpreturnmsg_s {
+
+  @EndUserText.label : 'Status for Update Component Order'
+  status : abap.char(7);
+
+}
