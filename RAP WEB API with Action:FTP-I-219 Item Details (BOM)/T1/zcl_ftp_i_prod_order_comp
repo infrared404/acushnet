@@ -1,0 +1,388 @@
+*global class
+
+CLASS zcl_ftp_i_prod_order_comp DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zftp_i_prod_order_comp.
+ENDCLASS.
+
+CLASS zcl_ftp_i_prod_order_comp IMPLEMENTATION.
+ENDCLASS.
+
+*local types
+CLASS lhc_zftp_i_prod_order_comp DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_global_features FOR GLOBAL FEATURES
+      IMPORTING REQUEST requested_features FOR zftp_i_prod_order_comp RESULT result.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR zftp_i_prod_order_comp RESULT result.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ zftp_i_prod_order_comp RESULT result.
+
+    METHODS lock FOR LOCK
+      IMPORTING keys FOR LOCK zftp_i_prod_order_comp.
+
+    METHODS updatecomponentorder FOR MODIFY
+      IMPORTING keys FOR ACTION zftp_i_prod_order_comp~updatecomponentorder RESULT result.
+
+    METHODS prodordstaging FOR MODIFY
+      IMPORTING keys FOR ACTION zftp_i_prod_order_comp~prodordstaging RESULT result.
+
+ENDCLASS.
+
+CLASS lhc_zftp_i_prod_order_comp IMPLEMENTATION.
+
+  METHOD get_global_features.
+  ENDMETHOD.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD lock.
+  ENDMETHOD.
+
+  METHOD updatecomponentorder.
+*&---------------------------------------------------------------------*
+*& Method UpdateComponentOrder                           *
+*&---------------------------------------------------------------------*
+*& Title        :  Method to update Production Order Component entity  *
+*&                 given any discrepancies for component or quantity   *
+*&                 detected.                                           *
+*& Item Ref     :  FTP-I-219                                           *
+*& Date         :  09/13/2024                                          *
+*& Author       :  Ahmad Ammar/AAmmar                                  *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+*&---------------------------------------------------------------------*
+
+    TYPES: BEGIN OF lty_cache,
+             matnr TYPE matnr,
+           END OF lty_cache,
+           BEGIN OF lty_component,
+             productionorder TYPE c LENGTH 12,
+           END OF lty_component,
+           BEGIN OF lty_prodorder,
+             order_number TYPE aufnr,
+           END OF lty_prodorder,
+           BEGIN OF lty_detail_return,
+             type         TYPE  bapi_mtype,
+             id           TYPE symsgid,
+             number       TYPE symsgno,
+             message      TYPE bapi_msg,
+             log_no       TYPE balognr,
+             log_msg_no   TYPE balmnr,
+             message_v1   TYPE symsgv,
+             message_v2   TYPE symsgv,
+             message_v3   TYPE symsgv,
+             message_v4   TYPE symsgv,
+             parameter    TYPE bapi_param,
+             row          TYPE bapi_line,
+             field        TYPE bapi_fld,
+             system       TYPE bapilogsys,
+             order_number TYPE aufnr,
+           END OF lty_detail_return.
+
+    DATA : lt_component                TYPE TABLE OF lty_component,
+           lt_result                   TYPE TABLE FOR ACTION RESULT zftp_i_prod_order_comp~updatecomponentorder,
+           ls_component                LIKE LINE OF lt_component,
+           lv_material                 TYPE i_mfgordercomponentwithstatus-material,
+           lv_orderinternalid          TYPE i_mfgordercomponentwithstatus-orderinternalid,
+           lv_orderoperationinternalid TYPE i_mfgordercomponentwithstatus-orderoperationinternalid,
+           lv_quantities               TYPE i_mfgordercomponentwithstatus-requiredquantity,
+           lv_syncflag                 TYPE abap_bool,
+           lv_failflag                 TYPE abap_bool,
+           lt_cache                    TYPE TABLE OF lty_cache,
+           ls_cache                    LIKE LINE OF lt_cache,
+           lv_requiredquantity         TYPE i_mfgordercomponentwithstatus-requiredquantity,
+           lv_withdrawnquantity        TYPE i_mfgordercomponentwithstatus-withdrawnquantity,
+           lv_netquantity              TYPE i_mfgordercomponentwithstatus-requiredquantity,
+           lt_productionorder          TYPE TABLE OF lty_prodorder,
+           ls_productioorder           LIKE LINE OF lt_productionorder,
+           lt_detail_return            TYPE TABLE OF lty_detail_return,
+           lt_return                   TYPE bapiret2.
+
+    DATA: ls_bapi_ret TYPE zftp_prd_api_out_s,
+          lt_bapi_ret TYPE zftp_prd_api_out_t.
+
+
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<lfs_key>).
+      ls_component-productionorder = <lfs_key>-%param-productionorder.
+
+
+      APPEND ls_component TO lt_component.
+
+    ENDLOOP.
+
+    IF lt_component IS NOT INITIAL.
+      SORT lt_component.
+      DELETE ADJACENT DUPLICATES FROM lt_component.
+
+      SELECT FROM i_mfgordercomponentwithstatus
+          FIELDS material, orderinternalid, orderoperationinternalid, requiredquantity, withdrawnquantity
+          WHERE manufacturingorder = @<lfs_key>-%param-productionorder
+
+          INTO TABLE @DATA(lt_prod_order).
+
+      IF lt_prod_order IS NOT INITIAL.
+        SORT lt_prod_order BY material.
+      ELSE.
+        lv_failflag = abap_true.
+        APPEND INITIAL LINE TO result ASSIGNING FIELD-SYMBOL(<lf_result_invalid_key>).
+            ls_bapi_ret-message = `Production Order ` && <lfs_key>-%param-productionorder && ` invalid.`.
+            <lf_result_invalid_key>-%param-message = ls_bapi_ret-message.
+            <lf_result_invalid_key>-%param-message_type = 'E'.
+            <lf_result_invalid_key>-%cid = keys[ 1 ]-%cid.
+            EXIT.
+      ENDIF.
+    ENDIF.
+
+    LOOP AT keys ASSIGNING <lfs_key>.
+
+      LOOP AT <lfs_key>-%param-_component ASSIGNING FIELD-SYMBOL(<lfs_mesabi_comp>).
+
+
+*       Checking discrepancies through each component.
+        LOOP AT lt_prod_order ASSIGNING FIELD-SYMBOL(<lfs_s4hana_comp>).
+
+          lv_requiredquantity = 0.
+          lv_withdrawnquantity = 0.
+          lv_netquantity = 0.
+          LOOP AT lt_prod_order ASSIGNING FIELD-SYMBOL(<lfs_prod_order>) WHERE material = <lfs_s4hana_comp>-material AND orderinternalid = <lfs_s4hana_comp>-orderinternalid AND orderoperationinternalid = <lfs_s4hana_comp>-orderoperationinternalid.
+            lv_requiredquantity = lv_requiredquantity + <lfs_prod_order>-requiredquantity.
+            lv_withdrawnquantity = lv_withdrawnquantity + <lfs_prod_order>-withdrawnquantity.
+          ENDLOOP.
+          lv_netquantity = lv_requiredquantity - lv_withdrawnquantity.
+
+*            Check discrepancies in component (if not existing).
+          IF <lfs_mesabi_comp>-material EQ <lfs_s4hana_comp>-material.
+*                If component exist, check if any quantity discrepancies.
+            IF <lfs_mesabi_comp>-requiredquantity NE lv_netquantity.
+              lv_quantities = <lfs_mesabi_comp>-requiredquantity - lv_netquantity.
+
+              lv_orderinternalid = <lfs_s4hana_comp>-orderinternalid.
+              lv_orderoperationinternalid = <lfs_s4hana_comp>-orderoperationinternalid.
+              lv_material = <lfs_mesabi_comp>-material.
+              EXIT.
+            ELSE.
+              lv_syncflag = abap_true.
+              lv_material = <lfs_mesabi_comp>-material.
+              EXIT.
+            ENDIF.
+
+          ELSEIF NOT line_exists( lt_cache[ matnr = <lfs_s4hana_comp>-material ] ).
+*                Assign material to local variable, it will be added as a new component.
+            lv_material = <lfs_mesabi_comp>-material.
+
+            lv_orderinternalid = <lfs_s4hana_comp>-orderinternalid.
+            lv_orderoperationinternalid = <lfs_s4hana_comp>-orderoperationinternalid.
+            lv_quantities = <lfs_mesabi_comp>-requiredquantity.
+
+            ls_cache-matnr = <lfs_s4hana_comp>-material.
+            APPEND ls_cache TO lt_cache.
+
+          ENDIF.
+        ENDLOOP.
+
+        SELECT SINGLE billofmaterialitemcategory
+        FROM i_billofmaterialitembasic
+        WHERE billofmaterialcomponent = @lv_material
+        INTO @DATA(lv_billofmaterialitemcategory).
+
+*    Now we have all paramater:-
+*    lv_orderinternalid,
+*    lv_orderoperationinternalid,
+*    lv_material, lv_quantities,
+*    lv_billofmaterialitemcategory
+*    Then, EML code below can be executed to add new line of component
+
+*       Given component details sync in both Mesabi and S4, no need to conduct update
+        IF lv_syncflag NE abap_true AND lv_quantities > 0.
+
+          MODIFY ENTITIES OF i_productionordertp
+          ENTITY productionorderoperation
+          CREATE BY \_operationcomponent
+          AUTO FILL CID
+          FIELDS (
+          material
+          billofmaterialitemcategory
+          requiredquantity
+          baseunit
+          )
+          WITH VALUE #(
+          (
+          %key-orderinternalid = lv_orderinternalid
+          %key-orderoperationinternalid = lv_orderoperationinternalid
+          %target = VALUE #(
+          (
+          %data-material = lv_material
+          %data-billofmaterialitemcategory = lv_billofmaterialitemcategory
+          %data-requiredquantity = lv_quantities
+          )
+          )
+          )
+          )
+
+          FAILED DATA(ls_create_failed)
+          REPORTED DATA(ls_create_reported)
+          MAPPED DATA(ls_create_mapped) ##EML_IN_LOOP_OK.
+          APPEND INITIAL LINE TO result ASSIGNING FIELD-SYMBOL(<lf_result>).
+          IF ls_create_failed IS NOT INITIAL.
+            lv_failflag = abap_true.
+            ls_bapi_ret-message = `Material ` && lv_material && ` update failed.`.
+            <lf_result>-%param-message = ls_bapi_ret-message.
+            <lf_result>-%param-id = lv_material.
+            <lf_result>-%param-message_type = 'E'.
+            <lf_result>-%cid = keys[ 1 ]-%cid..
+
+*APPEND VALUE #( %cid = keys[ 1 ]-%cid %param-message = 'Success'  ) TO result.
+          ELSE.
+            ls_bapi_ret-message = `Material ` && lv_material && ` update successful.`.
+            <lf_result>-%param-message = ls_bapi_ret-message.
+            <lf_result>-%param-message_type = 'S'.
+             <lf_result>-%param-id = lv_material.
+            <lf_result>-%cid = keys[ 1 ]-%cid.
+*            Execute FM WM Staging by providing the production order number.
+*            ls_productioorder-order_number = <lfs_key>-%param-productionorder.
+*            APPEND ls_productioorder TO lt_productionorder.
+*
+*            zcl_ftp_prodord_wm_stag=>prodord_wm_staging(
+*               IMPORTING
+*                 iv_return     = lt_return
+*              CHANGING
+*                orders        = lt_productionorder
+*                detail_return = lt_detail_return
+*
+*            ).
+
+          ENDIF.
+        else.
+           APPEND INITIAL LINE TO result ASSIGNING FIELD-SYMBOL(<lf_result_failed>).
+           lv_failflag = abap_true.
+           ls_bapi_ret-message = `Material ` && lv_material && ` update successful.`.
+            <lf_result_failed>-%param-message = ls_bapi_ret-message.
+            <lf_result_failed>-%param-message_type = 'S'.
+            <lf_result_failed>-%param-id = lv_material.
+            <lf_result_failed>-%cid = keys[ 1 ]-%cid..
+        ENDIF.
+        CLEAR lv_syncflag.
+
+      ENDLOOP.
+*
+*      IF lv_failflag NE abap_true.
+**        APPEND VALUE #( %cid = keys[ 1 ]-%cid %param-status = 'Success'  ) TO result.
+*      ELSE.
+**        APPEND VALUE #( %cid = keys[ 1 ]-%cid %param-status = 'Failed'  ) TO result.
+*      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD prodordstaging.
+    TYPES: BEGIN OF lty_prodorder,
+             order_number TYPE aufnr,
+           END OF lty_prodorder,
+           BEGIN OF lty_detail_return,
+             type         TYPE  bapi_mtype,
+             id           TYPE symsgid,
+             number       TYPE symsgno,
+             message      TYPE bapi_msg,
+             log_no       TYPE balognr,
+             log_msg_no   TYPE balmnr,
+             message_v1   TYPE symsgv,
+             message_v2   TYPE symsgv,
+             message_v3   TYPE symsgv,
+             message_v4   TYPE symsgv,
+             parameter    TYPE bapi_param,
+             row          TYPE bapi_line,
+             field        TYPE bapi_fld,
+             system       TYPE bapilogsys,
+             order_number TYPE aufnr,
+           END OF lty_detail_return.
+
+    DATA: ls_bapi_ret TYPE zftp_prd_api_out_s,
+          lt_bapi_ret TYPE zftp_prd_api_out_t.
+
+    DATA: lt_productionorder TYPE TABLE OF lty_prodorder,
+          ls_productioorder  LIKE LINE OF lt_productionorder,
+          lt_return          TYPE bapiret2,
+          lt_detail_return   TYPE TABLE OF lty_detail_return.
+
+    LOOP AT keys ASSIGNING FIELD-SYMBOL(<lfs_key_staging>).
+*            Execute FM WM Staging by providing the production order number.
+      ls_productioorder-order_number = <lfs_key_staging>-%param-productionorder.
+      APPEND ls_productioorder TO lt_productionorder.
+
+      zcl_ftp_prodord_wm_stag=>prodord_wm_staging(
+         IMPORTING
+           iv_return     = lt_return
+        CHANGING
+          orders        = lt_productionorder
+          detail_return = lt_detail_return
+
+      ).
+      APPEND INITIAL LINE TO result ASSIGNING FIELD-SYMBOL(<lf_result>).
+      "assuming that its only one record set that is passed in key at a time
+      READ TABLE lt_detail_return ASSIGNING FIELD-SYMBOL(<lf_detail_ret>)
+                                  WITH KEY type = 'E'.
+      IF <lf_detail_ret> IS ASSIGNED.
+        ls_bapi_ret-message = `Production Order ` && ls_productioorder-order_number && ` update failed.`.
+        <lf_result>-%param-message = ls_bapi_ret-message.
+        <lf_result>-%cid = keys[ 1 ]-%cid.
+        <lf_result>-%param-message_type = 'E'.
+
+*        APPEND VALUE #( %cid = keys[ 1 ]-%cid %param-status = 'Failed'  ) TO result.
+      ELSE.
+        ls_bapi_ret-message = `Production Order ` && ls_productioorder-order_number && ` update successful.`.
+        <lf_result>-%param-message = ls_bapi_ret-message.
+        <lf_result>-%cid = keys[ 1 ]-%cid.
+        <lf_result>-%param-message_type = 'S'.
+*        APPEND VALUE #( %cid = keys[ 1 ]-%cid %param-status = 'Success'  ) TO result.
+      ENDIF.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lsc_zftp_i_prod_order_comp DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+
+    METHODS finalize REDEFINITION.
+
+    METHODS check_before_save REDEFINITION.
+
+    METHODS save REDEFINITION.
+
+    METHODS cleanup REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+ENDCLASS.
+
+CLASS lsc_zftp_i_prod_order_comp IMPLEMENTATION.
+
+  METHOD finalize.
+  ENDMETHOD.
+
+  METHOD check_before_save.
+  ENDMETHOD.
+
+  METHOD save.
+  ENDMETHOD.
+
+  METHOD cleanup.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+ENDCLASS.
