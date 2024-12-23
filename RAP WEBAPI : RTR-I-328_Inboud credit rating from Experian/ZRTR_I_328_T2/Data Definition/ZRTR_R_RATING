@@ -1,0 +1,19 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'CDS View Reference BP1012'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZRTR_R_RATING as select from bp1012
+{
+    
+    key partner as Partner,
+    key timestamp as Timestamp,
+    key diftval as Diftval,
+    key date_to as DateTo,
+    key grade_method as GradeMethod,
+    date_from as DateFrom,
+    flg_permit as FlgPermit,
+    grade as Grade,
+    tendency as Tendency,
+    date_when as DateWhen,
+    flg_default as FlgDefault,
+    text as Text
+}
