@@ -1,0 +1,9 @@
+@EndUserText.label: 'Abstract Entity for Prod Order'
+define root abstract entity ZFTP_I_ABSTRACT_PROD_ORDER
+  //  with parameters parameter_name : parameter_type
+{
+  ProductionOrder : abap.char( 12 );
+
+  _Component      : composition [0..*] of ZFTP_I_ABSTRACT_ORDER_COMP;
+
+}
