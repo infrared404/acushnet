@@ -1,0 +1,39 @@
+"! This interface is used to access ATP Check API using Service <strong>API_AVAIL_TO_PROMISE_CHECK</strong>.
+INTERFACE zif_atp_check_proxy
+PUBLIC.
+  TYPES: BEGIN OF ty_atp_data,
+           atp_qty  TYPE bs_atp_cnf_qty,
+           atp_date TYPE dats,
+         END OF ty_atp_data.
+
+  TYPES: BEGIN OF ty_atp_key,
+           product TYPE matnr,
+           plant   TYPE werks_d,
+         END OF ty_atp_key.
+  TYPES: BEGIN OF ty_charc,
+           CharcCatalogCharacteristicName TYPE charccatalogcharacteristicname,
+           CharcCatalogCharcValue         TYPE atp_charc_value,
+         END OF ty_charc.
+  TYPES tt_charc TYPE STANDARD TABLE OF ty_charc WITH NON-UNIQUE DEFAULT KEY.
+
+  TYPES: BEGIN OF ty_doc_attribute,
+           ATPRelevantDocumentPurpose TYPE atp_relevant_document_purpose,
+           _Characteristics           TYPE tt_charc,
+         END OF ty_doc_attribute.
+
+  TYPES: BEGIN OF ty_param,
+           ap_92dc5ecf624aa7eec26e95f7a95 TYPE prreg,
+           ap_35ea9bec090ad8ba3c8e53e365f TYPE tdd_reqqty_bu,
+           ap_e089916a86969861bfb4243c2f0 TYPE unit,
+           ap_3e4f3bda79da082dfc5669071c1 TYPE tzntstmps,
+           ap_a404e5c07ea449902703d5eac25 TYPE odata_atp_chk_consider_pal,
+           ap_4ef84ab6aecb7bd5f6f9696981c TYPE ty_doc_attribute,
+         END OF ty_param.
+
+  METHODS get_atp_check_data
+    IMPORTING iv_matnr      TYPE matnr
+              iv_werks      TYPE werks_d
+    RETURNING VALUE(result) TYPE ty_atp_data
+    RAISING   zcx_base_proxy.
+
+ENDINTERFACE.
