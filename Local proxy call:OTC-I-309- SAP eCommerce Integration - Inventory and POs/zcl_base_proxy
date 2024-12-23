@@ -1,0 +1,67 @@
+"! This class is used to create proxy client.
+CLASS zcl_base_proxy DEFINITION
+  PUBLIC
+  CREATE PROTECTED.
+
+  PUBLIC SECTION.
+    DATA mv_service_id      TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_id      READ-ONLY.
+    DATA mv_service_version TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_version READ-ONLY.
+    DATA mv_repository_id   TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-repository_id   READ-ONLY.
+
+    "! The constructor method.
+    "!
+    "! @parameter iv_service_id      | Service ID
+    "! @parameter iv_service_version | Service Version
+    METHODS constructor
+      IMPORTING iv_service_id      TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_id
+                iv_service_version TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-service_version
+                iv_repository_id   TYPE /iwbep/if_cp_client_proxy=>ty_s_service_key_v4-repository_id.
+
+  PROTECTED SECTION.
+    DATA mo_client_proxy TYPE REF TO /iwbep/if_cp_client_proxy.
+
+    "! This method is used to create local V2 proxy client.
+    "!
+    "! @parameter result         | Return for local V2 proxy client
+    "! @raising   zcx_base_proxy | Exception for when local proxy creation failed
+    METHODS get_proxy_client
+      RETURNING VALUE(result) TYPE REF TO  /iwbep/if_cp_client_proxy
+      RAISING   zcx_base_proxy.
+
+  PRIVATE SECTION.
+
+ENDCLASS.
+
+
+CLASS zcl_base_proxy IMPLEMENTATION.
+  METHOD constructor.
+    mv_service_id = iv_service_id.
+    mv_service_version = iv_service_version.
+    mv_repository_id = iv_repository_id.
+  ENDMETHOD.
+
+  METHOD get_proxy_client.
+    IF mo_client_proxy IS BOUND.
+      result = mo_client_proxy.
+      RETURN.
+    ENDIF.
+
+    TRY.
+
+        result = /iwbep/cl_cp_client_proxy_fact=>create_v4_local_proxy( VALUE #(
+                                                                            service_id      = mv_service_id
+                                                                            service_version = mv_service_version
+                                                                            repository_id   = mv_repository_id ) ).
+        IF result IS BOUND.
+          mo_client_proxy = result.
+        ENDIF.
+
+      CATCH /iwbep/cx_gateway INTO FINAL(error).
+        RAISE EXCEPTION NEW zcx_base_proxy( is_textid      = zcx_base_proxy=>c_proxy_create_fail
+                                            is_previous    = error
+                                            iv_key_id      = mv_service_id
+                                            iv_key_version = mv_service_version ).
+
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.
