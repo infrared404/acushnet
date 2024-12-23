@@ -1,0 +1,331 @@
+*&---------------------------------------------------------------------*
+*& Include ZINOTC_ATP_INVENTORY_I01
+*&---------------------------------------------------------------------*
+*& Title        :  This include stores program's class implementations *
+*&                 declarations                                        *
+*& Item Ref     :  OTC-I-309                                           *
+*& Date         :  10/02/2024                                          *
+*& Author       :  Ahmad Aizat/AALI                                    *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 10/02/2024   AALI    DS4K901431   Initial Development               *
+*&---------------------------------------------------------------------*
+CLASS lcl_atp_inventory IMPLEMENTATION.
+  METHOD main.
+    get_data( ).
+    update_custom_table( ).
+    populate_header_data( ).
+    populate_data( ).
+    write_to_app_server( ).
+  ENDMETHOD.
+
+
+  METHOD open_file_dialog.
+    CALL FUNCTION '/SAPDMC/LSM_F4_SERVER_FILE'
+      EXPORTING
+        directory        = p_file
+      IMPORTING
+        serverfile       = p_file
+      EXCEPTIONS
+        canceled_by_user = 1
+        OTHERS           = 2.
+    IF sy-subrc <> 0 AND sy-subrc <> 1.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD validate_app_path.
+    DATA lt_dir_list TYPE STANDARD TABLE OF epsfili.
+
+    CALL FUNCTION 'EPS_GET_DIRECTORY_LISTING'
+      EXPORTING
+        dir_name               = p_file
+      TABLES
+        dir_list               = lt_dir_list
+      EXCEPTIONS
+        invalid_eps_subdir     = 1
+        sapgparam_failed       = 2
+        build_directory_failed = 3
+        no_authorization       = 4
+        read_directory_failed  = 5
+        too_many_read_errors   = 6
+        empty_directory_list   = 7
+        OTHERS                 = 8.
+    IF     sy-subrc <> 0
+       AND sy-subrc <> 7.
+      MESSAGE 'Invalid application server file path' TYPE gc_error ##no_text.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD get_data.
+    DATA lr_character     TYPE RANGE OF string.
+    DATA lt_atp_inventory TYPE ltt_atp_inventory.
+    DATA lr_kdgrp         TYPE RANGE OF kdgrp.
+    DATA lt_knvv          TYPE ltt_knvv.
+    DATA ls_atp_data      TYPE lty_atp_data.
+    DATA lv_kdgrp         TYPE kdgrp.
+    DATA lt_atp_record    TYPE ltt_atp_record.
+    DATA lr_kunnr    TYPE RANGE OF kunnr.
+
+    lr_character = VALUE #( sign   = 'I'
+                            option = 'EQ'
+                            ( low = gc_char_kunnr )
+                            ( low = gc_char_kdgrp ) ).
+
+    SELECT a~supplyprotectionuuid,
+           a~supplyprotectionname,
+           a~material,
+           a~materialname,
+           a~plant,
+           a~unitofmeasure,
+           b~supprotcharcctlgpathuuid,
+           b~supprotcharcctlgpathintid,
+           b~characteristic
+      FROM a_supplyprotection AS a
+             INNER JOIN
+               i_supprotcharacteristictp AS b ON a~supplyprotectionuuid = b~supplyprotectionuuid
+      WHERE a~supprotlifecyclestatus  = '02'
+        AND b~characteristic         IN @lr_character
+        AND plant IN @s_werks
+      INTO TABLE @FINAL(lt_supprotchar).
+
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+
+    SELECT supplyprotectionuuid,                   "#EC CI_NO_TRANSFORM
+           supprotcharc01ctlgpathuuid,
+           supprotcharc01ctlgpathintid,
+           supprotcharc01valueid
+      FROM i_supplyprotectiongroup
+      FOR ALL ENTRIES IN @lt_supprotchar
+      WHERE supplyprotectionuuid        = @lt_supprotchar-supplyprotectionuuid
+        AND supprotcharc01ctlgpathuuid  = @lt_supprotchar-supprotcharcctlgpathuuid
+        AND supprotcharc01ctlgpathintid = @lt_supprotchar-supprotcharcctlgpathintid
+      INTO TABLE @FINAL(lt_supprotgroup).
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+
+    lt_atp_inventory = VALUE #( BASE lt_atp_inventory FOR ls_supprotgroup IN lt_supprotgroup
+                                ( supplyprotectionuuid      = ls_supprotgroup-supplyprotectionuuid
+                                  supprotcharcctlgpathuuid  = ls_supprotgroup-supprotcharc01ctlgpathuuid
+                                  supprotcharcctlgpathintid = ls_supprotgroup-supprotcharc01ctlgpathintid
+                                  supprotcharc01valueid     = ls_supprotgroup-supprotcharc01valueid ) ).
+
+    LOOP AT lt_atp_inventory ASSIGNING FIELD-SYMBOL(<lf_atp_inventory>).
+      FINAL(ls_supprotchar) = VALUE #( lt_supprotchar[
+                                       supplyprotectionuuid      = <lf_atp_inventory>-supplyprotectionuuid
+                                       supprotcharcctlgpathuuid  = <lf_atp_inventory>-supprotcharcctlgpathuuid
+                                       supprotcharcctlgpathintid = <lf_atp_inventory>-supprotcharcctlgpathintid ] OPTIONAL ).
+
+      MOVE-CORRESPONDING ls_supprotchar TO <lf_atp_inventory>.
+
+      <lf_atp_inventory>-customer = COND #( WHEN <lf_atp_inventory>-characteristic = gc_char_kunnr
+                                            THEN <lf_atp_inventory>-supprotcharc01valueid
+                                            ELSE <lf_atp_inventory>-customer ).
+      IF <lf_atp_inventory>-characteristic = gc_char_kdgrp.
+        APPEND VALUE #( sign   = 'I'
+                        option = 'EQ'
+                        low    = <lf_atp_inventory>-supprotcharc01valueid ) TO lr_kdgrp.
+      ENDIF.
+
+    ENDLOOP.
+
+    " Get Material type
+    SELECT matnr, mtart FROM mara
+      FOR ALL ENTRIES IN @lt_atp_inventory
+      WHERE matnr = @lt_atp_inventory-material
+      INTO TABLE @FINAL(lt_mara).
+
+    " Get customer from Customer Group
+    IF lr_kdgrp IS NOT INITIAL.
+      SELECT kdgrp, vtweg, kunnr FROM knvv
+        WHERE kdgrp IN @lr_kdgrp
+        INTO TABLE @lt_knvv.
+
+      DELETE ADJACENT DUPLICATES FROM lt_knvv COMPARING ALL FIELDS.
+    ENDIF.
+
+    LOOP AT lt_atp_inventory ASSIGNING <lf_atp_inventory>.
+      ls_atp_data = VALUE #( matnr = <lf_atp_inventory>-material
+                             werks = <lf_atp_inventory>-plant
+                             maktx = <lf_atp_inventory>-materialname ).
+      ls_atp_data-mtart = VALUE #( lt_mara[ matnr = <lf_atp_inventory>-material ]-mtart OPTIONAL ).
+      IF <lf_atp_inventory>-characteristic = gc_char_kdgrp.
+
+        lv_kdgrp = <lf_atp_inventory>-supprotcharc01valueid.
+        READ TABLE lt_knvv INTO DATA(ls_knvv) WITH KEY kdgrp = lv_kdgrp BINARY SEARCH.
+        IF sy-subrc = 0.
+          FINAL(lv_tabix) = sy-tabix.
+          LOOP AT lt_knvv INTO ls_knvv FROM lv_tabix.
+            IF ls_knvv-kdgrp <> <lf_atp_inventory>-supprotcharc01valueid.
+              EXIT.
+            ELSE.
+              ls_atp_data-kunnr = ls_knvv-kunnr.
+              APPEND ls_atp_data TO lt_atp_data.
+            ENDIF.
+          ENDLOOP.
+        ENDIF.
+      ELSEIF <lf_atp_inventory>-characteristic = gc_char_kunnr.
+        ls_atp_data-kunnr = <lf_atp_inventory>-customer.
+        APPEND ls_atp_data TO lt_atp_data.
+      ENDIF.
+
+    ENDLOOP.
+
+    SORT lt_atp_data BY werks
+                        matnr
+                        kunnr.
+    DELETE ADJACENT DUPLICATES FROM lt_atp_data COMPARING werks matnr kunnr.
+
+    "Get Customer with Account group X001
+    SELECT kunnr FROM kna1 INTO TABLE @DATA(lt_kna1)
+      FOR ALL ENTRIES IN @lt_atp_data
+      WHERE kunnr = @lt_atp_data-kunnr AND
+            ktokd = 'X001'.
+    IF sy-subrc NE 0.
+      EXIT.
+    ELSE.
+      lr_kunnr = VALUE #( FOR ls_kna1 IN lt_kna1
+                          ( sign   = 'I'
+                            option = 'EQ'
+                            low    = ls_kna1-kunnr ) ).
+      DELETE lt_atp_data WHERE kunnr NOT IN lr_kunnr.
+    ENDIF.
+
+
+    FINAL(atp_check_proxy) = zcl_atp_check_proxy=>create( ).
+    IF atp_check_proxy IS BOUND.
+
+      LOOP AT lt_atp_data ASSIGNING FIELD-SYMBOL(<lf_atp_data>).
+
+        FINAL(ls_atp_record) = VALUE #( lt_atp_record[ werks = <lf_atp_data>-werks
+                                                       matnr = <lf_atp_data>-matnr ] OPTIONAL ).
+        IF ls_atp_record IS NOT INITIAL.
+          <lf_atp_data>-atp_qty  = ls_atp_record-atp_qty.
+          <lf_atp_data>-atp_date = ls_atp_record-atp_date.
+        ELSE.
+
+          TRY.
+              FINAL(ls_atp_proxy_data) = atp_check_proxy->get_atp_check_data( iv_matnr = <lf_atp_data>-matnr
+                                                                              iv_werks = <lf_atp_data>-werks ).
+              IF ls_atp_proxy_data IS NOT INITIAL.
+                <lf_atp_data>-atp_date = ls_atp_proxy_data-atp_date.
+                <lf_atp_data>-atp_qty  = ls_atp_proxy_data-atp_qty.
+                APPEND VALUE #( werks    = <lf_atp_data>-werks
+                                matnr    = <lf_atp_data>-matnr
+                                atp_date = ls_atp_proxy_data-atp_date
+                                atp_qty  = ls_atp_proxy_data-atp_qty ) TO lt_atp_record.
+              ENDIF.
+
+            CATCH zcx_base_proxy.
+              CONTINUE.
+          ENDTRY.
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD populate_header_data.
+    CONCATENATE TEXT-001    " Plant
+                TEXT-002    " Material
+                TEXT-003    " Customer
+                TEXT-004    " Material Description
+                TEXT-005    " Material Type
+                TEXT-006    " ATP Quantity
+                TEXT-007    " ATP Date
+                TEXT-008    " Price Category
+                TEXT-009    " Region 1
+                TEXT-010    " Region 2
+                TEXT-011    " Region 3
+                INTO ls_atp_csv
+                SEPARATED BY gc_pipe.
+
+    APPEND ls_atp_csv TO lt_atp_csv.
+  ENDMETHOD.
+
+  METHOD convert_to_csv.
+    DATA lv_field TYPE string.
+
+    FIELD-SYMBOLS <lfs_field> TYPE any.
+
+    DO.
+      ASSIGN COMPONENT sy-index OF STRUCTURE is_atp_data TO <lfs_field>.
+      IF sy-subrc <> 0.
+        EXIT.
+      ENDIF.
+
+      lv_field = <lfs_field>.
+      lv_field = condense( lv_field ).
+
+      " Concatenate the fields to one single line separated by delimiter '|'
+      IF sy-index = 1.
+        es_csv = lv_field.
+      ELSE.
+        CONCATENATE es_csv lv_field INTO es_csv SEPARATED BY gc_pipe.
+      ENDIF.
+    ENDDO.
+  ENDMETHOD.
+
+  METHOD populate_data.
+    LOOP AT lt_atp_data ASSIGNING FIELD-SYMBOL(<lf_atp_data>).
+      ls_atp_csv = convert_to_csv( IMPORTING is_atp_data = <lf_atp_data> ).
+      APPEND ls_atp_csv TO lt_atp_csv.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD write_to_app_server.
+    DATA lv_filepath TYPE epspath.
+
+    " Get execution date and time
+    FINAL(lv_date) = |{ sy-datum+6(2) }.{ sy-datum+4(2) }.{ sy-datum+0(4) }|.
+    FINAL(lv_time) = |{ sy-uzeit+0(2) }:{ sy-uzeit+2(2) }:{ sy-uzeit+4(2) }|.
+
+    " Check if the app server path ends with '/'
+    FINAL(lv_length) = strlen( p_file ).
+    IF p_file+lv_length(1) <> '/'.
+      p_file = |{ p_file }/|.
+    ENDIF.
+
+    " Build YAYPAY file name
+    FINAL(lv_filename) = |eCommerce_ATP_{ lv_date }_{ lv_time }.csv|.
+    CONCATENATE p_file lv_filename
+                INTO lv_filepath.
+
+    " Write data into application server file
+    OPEN DATASET lv_filepath FOR OUTPUT IN TEXT MODE ENCODING DEFAULT.
+    IF sy-subrc = 0.
+      LOOP AT lt_atp_csv INTO ls_atp_csv.
+        TRANSFER ls_atp_csv TO lv_filepath.
+      ENDLOOP.
+      CLOSE DATASET lv_filepath.
+
+      FINAL(upload_message) = |{ TEXT-012 } { p_file }|.
+      MESSAGE upload_message TYPE gc_success.
+    ELSE.
+      MESSAGE ID sy-msgid
+              TYPE sy-msgty
+              NUMBER sy-msgno
+              WITH sy-msgv1
+                   sy-msgv2
+                   sy-msgv3
+                   sy-msgv4.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD update_custom_table.
+    DATA lt_atp_table TYPE STANDARD TABLE OF zotc_t_atp_inv.
+
+    IF lt_atp_data IS NOT INITIAL.
+      lt_atp_table = CORRESPONDING #( lt_atp_data ).
+      DELETE FROM zotc_t_atp_inv.                       "#EC CI_NOWHERE
+      INSERT zotc_t_atp_inv FROM TABLE lt_atp_table.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
