@@ -1,0 +1,10 @@
+@EndUserText.label: 'Abstract Entity for Order Component'
+define abstract entity ZFTP_I_ABSTRACT_ORDER_COMP
+  //  with parameters parameter_name : parameter_type
+{
+  ProductionOrder  : abap.char( 12 );
+  RequiredQuantity : abap.dec( 20 , 3 );
+  Material         : abap.char( 40 );
+
+  _ProductionOrder : association to parent ZFTP_I_ABSTRACT_PROD_ORDER;
+}
