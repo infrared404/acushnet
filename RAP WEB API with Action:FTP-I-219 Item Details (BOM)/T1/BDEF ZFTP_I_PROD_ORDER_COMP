@@ -1,0 +1,14 @@
+unmanaged implementation in class zcl_ftp_i_prod_order_comp unique;
+strict ( 2 );
+
+define behavior for ZFTP_I_PROD_ORDER_COMP //alias <alias_name>
+//late numbering
+lock master
+authorization master ( instance )
+//etag master <field_name>
+{
+  field (readonly) Reservation, ReservationItem, ReservationRecordType;
+  static action ( features : global ) UpdateComponentOrder deep parameter ZFTP_I_ABSTRACT_PROD_ORDER result [1..*] ZFTP_PRD_API_OUT_S;
+  static action ( features : global ) ProdOrdStaging deep parameter ZFTP_I_ABSTRACT_PROD_ORDER result [1..*] ZFTP_PRD_API_OUT_S;
+
+}
