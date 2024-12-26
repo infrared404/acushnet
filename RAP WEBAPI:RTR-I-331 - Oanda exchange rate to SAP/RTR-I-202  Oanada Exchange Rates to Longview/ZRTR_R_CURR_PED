@@ -1,0 +1,20 @@
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: '##GENERATED ZRTR_T_CURR_PED'
+define root view entity ZRTR_R_CURR_PED
+  as select from zrtr_t_curr_ped
+{
+  key fcurr as Fcurr,
+  key tcurr as Tcurr,
+  bdatu as Bdatu,
+  @Semantics.user.createdBy: true
+  local_created_by as LocalCreatedBy,
+  @Semantics.systemDateTime.createdAt: true
+  local_created_at as LocalCreatedAt,
+  @Semantics.user.localInstanceLastChangedBy: true
+  local_last_changed_by as LocalLastChangedBy,
+  @Semantics.systemDateTime.localInstanceLastChangedAt: true
+  local_last_changed_at as LocalLastChangedAt,
+  @Semantics.systemDateTime.lastChangedAt: true
+  last_changed_at as LastChangedAt
+  
+}
