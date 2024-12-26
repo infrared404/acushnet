@@ -1,0 +1,41 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'exchange rate calculate'
+@Metadata.ignorePropagatedAnnotations: true
+@ObjectModel.usageType:{
+    serviceQuality: #X,
+    sizeCategory: #S,
+    dataClass: #MIXED
+}
+define view entity ZRTR_I_EXCHANGERATE as select from ZRTR_P_EXCHANGERATE as t1
+left outer join zrtr_t_curr_ped as t2 on t2.fcurr = t1.SourceCurrency and t2.tcurr = t1.TargetCurrency
+{
+    key t1.ExchangeRateType,
+    key t1.SourceCurrency,
+    key t1.TargetCurrency,
+    key t1.ExchangeRateEffectiveDate,
+    t1.ExchangeRate,
+    t1.NumberOfSourceCurrencyUnits,
+    t1.NumberOfTargetCurrencyUnits,
+    t1.AlternativeExchangeRateType,
+    t1.AltvExchangeRateTypeValdtyDate,
+    t1.InvertedExchangeRateIsAllowed,
+    t1.ReferenceCurrency,
+    t1.BuyingRateAvgExchangeRateType,
+    t1.SellingRateAvgExchangeRateType,
+    t1.FixedExchangeRateIsUsed,
+    t1.SpecialConversionIsUsed,
+    t1.SourceCurrencyDecimals,
+    t1.TargetCurrencyDecimals,
+    t1.ExchRateIsIndirectQuotation,
+    t1.AbsoluteExchangeRate,
+    t1.EffectiveExchangeRate,
+    t1.DirectQuotedEffectiveExchRate,
+    t1.IndirectQuotedEffctvExchRate,
+    t2.bdatu as EffectiveEndDate,
+    /* Associations */
+    t1._ExchangeRateType,
+    t1._SourceCurrency,
+    t1._TargetCurrency,
+    t1._Text
+}
