@@ -1,0 +1,243 @@
+*Global class
+CLASS zcl_bp_rtr_exchangerate DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zrtr_r_exchangerate.
+ENDCLASS.
+
+CLASS zcl_bp_rtr_exchangerate IMPLEMENTATION.
+ENDCLASS.
+
+*Local types
+CLASS lhc_exchangerate DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR exchangerate RESULT result.
+
+ENDCLASS.
+
+CLASS lhc_exchangerate IMPLEMENTATION.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lsc_zrtr_r_exchangerate DEFINITION INHERITING FROM cl_abap_behavior_saver_failed.
+  PROTECTED SECTION.
+
+    METHODS adjust_numbers REDEFINITION.
+
+    METHODS save_modified REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+
+  PRIVATE SECTION.
+    TYPES:
+      BEGIN OF gty_excrate_key,
+        belnr TYPE kurst_curr,
+        bukrs TYPE bukrs,
+        gjahr TYPE gjahr,
+      END OF  gty_excrate_key.
+    TYPES:
+
+      BEGIN OF gty_bapi_request,
+        pid       TYPE abp_behv_pid,
+        upd_allow TYPE bapi1093_2-upd_allow,
+        chg_fixed TYPE bapi1093_2-chg_fixed,
+        dev_allow TYPE bapi1093_2-dev_allow,
+        exc_rate  TYPE bapi1093_0,
+      END OF gty_bapi_request,
+      BEGIN OF gty_bapi_response,
+        pid      TYPE abp_behv_pid,
+        exc_rate TYPE bapi1093_0,
+        msg      TYPE STANDARD TABLE OF bapiret2 WITH DEFAULT KEY,
+      END OF   gty_bapi_response,
+      gty_reported TYPE RESPONSE FOR REPORTED LATE zrtr_r_exchangerate,
+      gty_mapped   TYPE RESPONSE FOR MAPPED LATE zrtr_r_exchangerate,
+      gty_failed   TYPE RESPONSE FOR FAILED LATE zrtr_r_exchangerate.
+
+    CONSTANTS: gc_error TYPE bapiret2-type VALUE 'E'.
+
+    METHODS handle_bapi_return IMPORTING is_result   TYPE gty_bapi_response
+                               CHANGING  cs_reported TYPE gty_reported
+                                         cs_failed   TYPE gty_failed OPTIONAL
+                               RAISING
+                                         zcx_rtr_exchange_rate_api.
+
+    METHODS new_msg_from_bapi IMPORTING is_message    TYPE bapiret2
+                              RETURNING VALUE(ro_msg) TYPE REF TO zcx_rtr_exchange_rate_api.
+
+ENDCLASS.
+
+CLASS lsc_zrtr_r_exchangerate IMPLEMENTATION.
+
+  METHOD adjust_numbers.
+*&---------------------------------------------------------------------*
+*& Method adjust_numbers(Unmanaged SAVE - Late Numbering)              *
+*&---------------------------------------------------------------------*
+*& Title        :  Method to call the BAPI_EXCHANGE_RATE               *
+*& RICEF ID     :  RTR-I-331                                           *
+*& Date         :  09/15/2024                                          *
+*& Author       :  Prakash Sivakumar/PSIVAKUMAR                        *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+*&---------------------------------------------------------------------*
+    DATA: ls_msg TYPE bapiret2.
+    DATA : ls_custom_data type ZRTR_T_CURR_PED.
+    " Read all data from Buffer
+    READ ENTITY IN LOCAL MODE zrtr_r_exchangerate
+    ALL FIELDS WITH VALUE #( FOR ls_exchange IN mapped-exchangerate ( %pky = ls_exchange-%pre ) )
+    RESULT DATA(lt_exchangerates).
+
+    "Prepare the create requests
+    LOOP AT mapped-exchangerate ASSIGNING FIELD-SYMBOL(<lfs_exchange>).
+
+      TRY.
+          "Get the record from transaction buffer for this key
+          DATA(lr_exchange) = REF #( lt_exchangerates[ KEY pid COMPONENTS %pid = <lfs_exchange>-%pid
+                                                                          %key = <lfs_exchange>-%tmp ] ).
+          "New BAPI request
+          DATA(ls_bapi_request) = VALUE gty_bapi_request( pid = lr_exchange->%pid ).
+
+          ls_bapi_request-exc_rate-exch_rate   = lr_exchange->exchangerate.
+          ls_bapi_request-exc_rate-rate_type   = lr_exchange->exchangeratetype.
+          ls_bapi_request-exc_rate-from_curr   = lr_exchange->sourcecurrency.
+          ls_bapi_request-exc_rate-to_currncy  = lr_exchange->targetcurrency.
+          ls_bapi_request-exc_rate-valid_from  = lr_exchange->exchangerateeffectivedate.
+          ls_bapi_request-exc_rate-from_factor = lr_exchange->numberofsourcecurrencyunits.
+          ls_bapi_request-exc_rate-to_factor   = lr_exchange->numberoftargetcurrencyunits.
+
+          "Call BAPI
+          DATA(ls_bapi_result) = VALUE gty_bapi_response( pid = ls_bapi_request-pid ).
+          ls_bapi_result-exc_rate = ls_bapi_request-exc_rate.
+
+          CALL FUNCTION 'BAPI_EXCHANGERATE_CREATE'
+            EXPORTING
+              upd_allow = abap_true
+              exch_rate = ls_bapi_request-exc_rate
+            IMPORTING
+              return    = ls_msg.
+
+          APPEND ls_msg TO ls_bapi_result-msg.
+          CLEAR ls_msg.
+
+          "Handle errors
+          handle_bapi_return(  EXPORTING is_result = ls_bapi_result
+                               CHANGING cs_reported = reported ).
+
+          <lfs_exchange>-exchangeratetype = ls_bapi_result-exc_rate-rate_type.
+          <lfs_exchange>-sourcecurrency = ls_bapi_result-exc_rate-from_curr.
+          <lfs_exchange>-targetcurrency = ls_bapi_result-exc_rate-to_currncy.
+          <lfs_exchange>-exchangerateeffectivedate = ls_bapi_result-exc_rate-valid_from.
+
+          "update custom table with effective end date
+       read table ls_bapi_result-msg TRANSPORTING NO FIELDS with key type = 'E'.
+          if sy-subrc ne 0.
+            ls_custom_data-fcurr = <lfs_exchange>-SourceCurrency.
+            ls_custom_data-tcurr = <lfs_exchange>-TargetCurrency.
+            ls_custom_data-bdatu = lr_exchange->EffectiveEndDate.
+            if lr_exchange->EffectiveEndDate NE '00000000'.
+            modify ZRTR_T_CURR_PED from ls_custom_data.
+            endif.
+          endif.
+
+        CATCH zcx_rtr_exchange_rate_api INTO DATA(lx_bapi_error).
+          "log error reason
+          APPEND VALUE #( %pky = <lfs_exchange>-%pre
+                          %msg = lx_bapi_error ) TO reported-exchangerate.
+          "BAPI call or preparation failed
+          INSERT VALUE #( %pky = <lfs_exchange>-%pre
+                          %create = if_abap_behv=>mk-on
+          ) INTO TABLE failed-exchangerate.
+      ENDTRY.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD save_modified.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+  METHOD handle_bapi_return.
+*&---------------------------------------------------------------------*
+*& Method adjust_numbers(Unmanaged SAVE - Late Numbering)              *
+*&---------------------------------------------------------------------*
+*& Title        :  Method to handle BAPI returns                       *
+*& RICEF ID     :  RTR-I-331                                           *
+*& Date         :  09/15/2024                                          *
+*& Author       :  Prakash Sivakumar/PSIVAKUMAR                        *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+*&---------------------------------------------------------------------*
+
+    "Process all messages
+    LOOP AT is_result-msg ASSIGNING FIELD-SYMBOL(<ls_bapi_msg>).
+      "Convert all messages
+      DATA(lo_behv_msg) = new_msg_from_bapi( <ls_bapi_msg> ).
+      "Stop on error
+      IF <ls_bapi_msg>-type CA gc_error.
+        DATA(lx_error_msg) = lo_behv_msg.
+        EXIT.
+      ELSE. "Success
+
+        APPEND VALUE #( %pid = is_result-pid
+                        %msg = lo_behv_msg ) TO cs_reported-exchangerate.
+      ENDIF.
+    ENDLOOP.
+
+    "check a key was generated
+    IF lx_error_msg IS NOT BOUND
+    AND is_result-exc_rate IS INITIAL.
+      "Unexpected technical error
+      RAISE EXCEPTION TYPE zcx_rtr_exchange_rate_api
+        EXPORTING
+          textid = zcx_rtr_exchange_rate_api=>c_tech_error.
+
+    ENDIF.
+    "If there was an error, raise it
+    IF lx_error_msg IS BOUND.
+      RAISE EXCEPTION lx_error_msg.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD new_msg_from_bapi.
+*&---------------------------------------------------------------------*
+*& Method adjust_numbers(Unmanaged SAVE - Late Numbering)              *
+*&---------------------------------------------------------------------*
+*& Title        :  Method to add messages from BAPI                    *
+*& RICEF ID     :  RTR-I-331                                           *
+*& Date         :  09/15/2024                                          *
+*& Author       :  Prakash Sivakumar/PSIVAKUMAR                        *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+*&---------------------------------------------------------------------*
+    CHECK is_message IS NOT INITIAL.
+    "determine severity
+    DATA(lv_msg_type) = COND #( WHEN is_message-type IS NOT INITIAL THEN is_message-type
+                                ELSE if_abap_behv_message=>severity-error ).
+    "set system variables
+    MESSAGE ID is_message-id TYPE lv_msg_type NUMBER is_message-number
+       WITH is_message-message_v1 is_message-message_v2 is_message-message_v3 is_message-message_v4
+       INTO DATA(lv_msg).
+    TRY.
+        "raise message from system variables
+        RAISE EXCEPTION TYPE zcx_rtr_exchange_rate_api USING MESSAGE.
+      CATCH zcx_rtr_exchange_rate_api INTO ro_msg ##no_handler.
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.
