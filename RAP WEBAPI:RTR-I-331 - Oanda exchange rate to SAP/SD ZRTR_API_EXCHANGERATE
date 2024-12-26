@@ -1,0 +1,4 @@
+@EndUserText.label: 'Exchange Rate Service Definition'
+define service ZRTR_API_EXCHANGERATE {
+  expose ZRTR_R_EXCHANGERATE;
+}
