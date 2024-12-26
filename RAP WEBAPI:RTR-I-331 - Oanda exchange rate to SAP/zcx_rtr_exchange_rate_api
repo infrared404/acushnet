@@ -1,0 +1,73 @@
+CLASS zcx_rtr_exchange_rate_api DEFINITION
+  PUBLIC
+  INHERITING FROM cx_static_check
+  FINAL
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    INTERFACES if_abap_behv_message .
+    INTERFACES if_t100_message .
+    INTERFACES if_t100_dyn_msg .
+
+    CONSTANTS:
+      "! <p class="shorttext synchronized" lang="en">Unexpected technical error</p>
+      BEGIN OF c_tech_error,
+        msgid TYPE symsgid VALUE 'ZRTR',
+        msgno TYPE symsgno VALUE '002',
+        attr1 TYPE scx_attrname VALUE '',
+        attr2 TYPE scx_attrname VALUE '',
+        attr3 TYPE scx_attrname VALUE '',
+        attr4 TYPE scx_attrname VALUE '',
+      END OF c_tech_error ##no_text,
+      BEGIN OF c_already_exists,
+        msgid TYPE symsgid VALUE 'ZRTR',
+        msgno TYPE symsgno VALUE '001',
+        attr1 TYPE scx_attrname VALUE 'GV_EXCTYPE',
+        attr2 TYPE scx_attrname VALUE 'GV_SRC_CURR',
+        attr3 TYPE scx_attrname VALUE 'GV_TAR_CURR',
+        attr4 TYPE scx_attrname VALUE 'GV_VALID_FRM',
+      END OF c_already_exists ##no_text.
+
+    DATA: gv_exctype TYPE zrtr_r_exchangerate-exchangeratetype.
+    DATA: gv_src_curr TYPE zrtr_r_exchangerate-sourcecurrency.
+    DATA: gv_tar_curr TYPE zrtr_r_exchangerate-targetcurrency.
+    DATA: gv_valid_frm TYPE zrtr_r_exchangerate-exchangerateeffectivedate.
+    METHODS constructor
+      IMPORTING
+        !textid   LIKE if_t100_message=>t100key OPTIONAL
+        !previous LIKE previous OPTIONAL
+        !severity TYPE if_abap_behv_message=>t_severity DEFAULT if_abap_behv_message=>severity-error
+        iv_exctype TYPE zrtr_r_exchangerate-exchangeratetype OPTIONAL
+        iv_src_curr TYPE zrtr_r_exchangerate-sourcecurrency OPTIONAL
+        iv_tar_curr TYPE zrtr_r_exchangerate-targetcurrency OPTIONAL
+        iv_valid_frm TYPE zrtr_r_exchangerate-exchangerateeffectivedate OPTIONAL.
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS zcx_rtr_exchange_rate_api IMPLEMENTATION.
+
+
+  METHOD constructor ##ADT_SUPPRESS_GENERATION.
+    CALL METHOD super->constructor
+      EXPORTING
+        previous = previous.
+    me->gv_exctype   = iv_exctype.
+    me->gv_src_curr  = iv_src_curr.
+    me->gv_tar_curr  = iv_tar_curr.
+    me->gv_valid_frm = iv_valid_frm.
+    "RAP message severity
+    me->if_abap_behv_message~m_severity = severity.
+
+    CLEAR me->textid.
+    IF textid IS INITIAL.
+      if_t100_message~t100key = if_t100_message=>default_textid.
+    ELSE.
+      if_t100_message~t100key = textid.
+    ENDIF.
+  ENDMETHOD.
+
+ENDCLASS.
