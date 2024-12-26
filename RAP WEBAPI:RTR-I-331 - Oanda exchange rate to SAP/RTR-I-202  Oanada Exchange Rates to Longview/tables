@@ -1,0 +1,39 @@
+@EndUserText.label : '##GENERATED ZRTR_T_CURR_PED'
+@AbapCatalog.enhancement.category : #EXTENSIBLE_ANY
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zrtr_d_curr_ped {
+
+  key mandt          : mandt not null;
+  key fcurr          : fcurr_curr not null;
+  key tcurr          : tcurr_curr not null;
+  bdatu              : abap.dats;
+  localcreatedby     : abp_creation_user;
+  localcreatedat     : abp_creation_tstmpl;
+  locallastchangedby : abp_locinst_lastchange_user;
+  locallastchangedat : abp_locinst_lastchange_tstmpl;
+  lastchangedat      : abp_lastchange_tstmpl;
+  "%admin"           : include sych_bdl_draft_admin_inc;
+
+}
+
+
+@EndUserText.label : 'Exchane rate period end date table'
+@AbapCatalog.enhancement.category : #EXTENSIBLE_ANY
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #C
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zrtr_t_curr_ped {
+
+  key client            : abap.clnt not null;
+  key fcurr             : fcurr_curr not null;
+  key tcurr             : tcurr_curr not null;
+  bdatu                 : abap.dats;
+  local_created_by      : abp_creation_user;
+  local_created_at      : abp_creation_tstmpl;
+  local_last_changed_by : abp_locinst_lastchange_user;
+  local_last_changed_at : abp_locinst_lastchange_tstmpl;
+  last_changed_at       : abp_lastchange_tstmpl;
+
+}
