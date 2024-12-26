@@ -1,0 +1,60 @@
+@Metadata.layer: #CUSTOMER
+@UI: {
+  headerInfo: {
+    typeName: 'Currency Period End Maintainence', 
+    typeNamePlural: 'Currency Period End Maintainence'
+  }
+}
+annotate view ZRTR_C_CURR_PED with
+{
+  @UI.facet: [ {
+    id: 'idIdentification', 
+    type: #IDENTIFICATION_REFERENCE, 
+    label: 'Currency Period End Maintainence', 
+    position: 10 
+  } ]
+  @UI.lineItem: [ {
+    position: 10 , 
+    importance: #MEDIUM, 
+    label: '',
+    navigationAvailable: false
+  } ]
+  @UI.identification: [ {
+    position: 10 , 
+    label: ''    
+  } ]
+  @UI.fieldGroup: [{groupLabel: 'Currency Period'}]
+  @Consumption.valueHelpDefinition: [{ entity.element: 'Currency' , entity.name: 'I_Currency' }]
+  Fcurr;
+  
+  @UI.lineItem: [ {
+    position: 20 , 
+    importance: #MEDIUM, 
+    label: '',
+    navigationAvailable: false
+  } ]
+  @UI.identification: [ {
+    position: 20 , 
+    label: ''
+  } ]
+  @UI.fieldGroup: [{groupLabel: 'Currency Period'}]
+  @Consumption.valueHelpDefinition: [{ entity.element: 'Currency' , entity.name: 'I_Currency' }]
+  Tcurr;
+  
+  @UI.lineItem: [ {
+    position: 30 , 
+    importance: #MEDIUM, 
+    label: 'Valid to date'  ,
+    navigationAvailable: false  
+  } ]
+  @UI.identification: [ {
+    position: 30 , 
+    label: 'Valid to date'
+  } ]
+  @EndUserText.label: 'Valid to Date'
+  @UI.fieldGroup: [{groupLabel: 'Currency Period'}]
+  Bdatu;
+  
+  @UI.hidden: true
+  LocalLastChangedAt;
+}
