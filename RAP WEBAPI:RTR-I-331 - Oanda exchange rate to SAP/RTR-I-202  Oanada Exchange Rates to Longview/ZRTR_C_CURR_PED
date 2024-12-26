@@ -1,0 +1,14 @@
+@AccessControl.authorizationCheck: #CHECK
+@Metadata.allowExtensions: true
+@EndUserText.label: 'Projection View for ZRTR_R_CURR_PED'
+@ObjectModel.semanticKey: [ 'Fcurr', 'Tcurr', 'Bdatu' ]
+define root view entity ZRTR_C_CURR_PED
+  provider contract transactional_query
+  as projection on ZRTR_R_CURR_PED
+{
+  key Fcurr,
+  key Tcurr,
+  Bdatu,
+  LocalLastChangedAt
+  
+}
