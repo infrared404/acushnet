@@ -1,0 +1,38 @@
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Exchange Rate Root View'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZRTR_R_EXCHANGERATE  as  select from ZRTR_I_EXCHANGERATE --I_ExchangeRate
+
+{
+    
+       key ExchangeRateType,
+       key SourceCurrency,
+       key TargetCurrency,
+       key ExchangeRateEffectiveDate,
+       ExchangeRate,
+       NumberOfSourceCurrencyUnits,
+       NumberOfTargetCurrencyUnits,
+       AlternativeExchangeRateType,
+       AltvExchangeRateTypeValdtyDate,
+       InvertedExchangeRateIsAllowed,
+       ReferenceCurrency,
+       BuyingRateAvgExchangeRateType,
+       SellingRateAvgExchangeRateType,
+       FixedExchangeRateIsUsed,
+       SpecialConversionIsUsed,
+       SourceCurrencyDecimals,
+       TargetCurrencyDecimals,
+       ExchRateIsIndirectQuotation,
+       AbsoluteExchangeRate,
+       EffectiveExchangeRate,
+       DirectQuotedEffectiveExchRate,
+       IndirectQuotedEffctvExchRate,
+       EffectiveEndDate,
+      -- @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_CALCULATE_END_DATE'
+      -- virtual EffectiveEndDate : abap.dats,
+       /* Associations */
+       _ExchangeRateType,
+       _SourceCurrency,
+       _TargetCurrency,
+       _Text
+}
