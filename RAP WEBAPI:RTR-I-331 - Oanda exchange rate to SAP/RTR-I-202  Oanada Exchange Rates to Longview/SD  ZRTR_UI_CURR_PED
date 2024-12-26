@@ -1,0 +1,4 @@
+@EndUserText.label: 'Service definition for ZRTR_C_CURR_PED'
+define service ZRTR_UI_CURR_PED {
+  expose ZRTR_C_CURR_PED;
+}
