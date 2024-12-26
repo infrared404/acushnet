@@ -1,0 +1,17 @@
+managed implementation in class zcl_bp_rtr_exchangerate unique;
+strict ( 2 );
+
+define behavior for ZRTR_R_EXCHANGERATE alias ExchangeRate
+with unmanaged save
+late numbering
+lock master
+authorization master ( instance )
+//etag master CreatedAt
+{
+
+  field (mandatory:create, readonly:update) ExchangeRateType, SourceCurrency,
+                                 TargetCurrency, ExchangeRateEffectiveDate;
+  create;
+  delete;
+
+}
