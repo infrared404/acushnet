@@ -1,0 +1,50 @@
+managed implementation in class ZCL_BP_RTR_CURR_PED unique;
+strict ( 2 );
+with draft;
+
+define behavior for ZRTR_R_CURR_PED
+persistent table zrtr_t_curr_ped
+draft table ZRTR_D_CURR_PED
+etag master LocalLastChangedAt
+lock master total etag LastChangedAt
+authorization master( global )
+
+{
+     field (mandatory :create )
+   Fcurr,
+   Tcurr,
+   Bdatu;
+
+  field ( readonly )
+   LocalCreatedAt,
+   LocalCreatedBy,
+   LastChangedAt,
+   LocalLastChangedAt,
+   LocalLastChangedBy;
+
+  field ( readonly :  update )
+   Fcurr,
+   Tcurr;
+
+  create;
+  update;
+  delete;
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare;
+
+  mapping for ZRTR_T_CURR_PED
+  {
+    Fcurr = fcurr;
+    Tcurr = tcurr;
+    Bdatu = bdatu;
+    LocalCreatedBy = local_created_by;
+    LocalCreatedAt = local_created_at;
+    LocalLastChangedBy = local_last_changed_by;
+    LocalLastChangedAt = local_last_changed_at;
+    LastChangedAt = last_changed_at;
+  }
+}
