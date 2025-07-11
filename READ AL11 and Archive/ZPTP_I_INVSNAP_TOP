@@ -1,0 +1,71 @@
+*&---------------------------------------------------------------------*
+*& Report ZPTP_I_INVSNAP_TOP                                           *
+*&---------------------------------------------------------------------*
+*& Title        :  Update WMS & SAP Inventory                          *
+*&                 invetory data                                       *
+*& Item Ref     :  PTP-I-162                                           *
+*& Date         :  11/12/2024                                          *
+*& Author       :  Ahmad Aizat/AALI/JPADAKAN                           *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 11/12/2024   AALI     DS4K902135   Initial Development              *
+*&---------------------------------------------------------------------*
+
+CLASS lcl_invsnap DEFINITION FINAL.
+  PUBLIC SECTION.
+
+    TYPES: BEGIN OF gty_wms,
+             date          TYPE dats,
+             matnr         TYPE matnr,
+             warehouse     TYPE werks_d,
+             lgort         TYPE lgort_d,
+             stock_type(3) TYPE c,
+             qty           TYPE ze_unr_sap_qty,
+           END OF gty_wms.
+    TYPES: BEGIN OF gty_mard,
+             matnr TYPE matnr,
+             werks TYPE werks_d,
+             lgort TYPE lgort_d,
+             labst TYPE labst,
+             insme TYPE insme,
+             speme TYPE speme,
+           END OF gty_mard.
+    TYPES: BEGIN OF gty_mara,
+             matnr TYPE matnr,
+             ean11 TYPE mara-ean11,
+           END OF gty_mara.
+
+    TYPES: BEGIN OF gty_mseg,
+             matnr   TYPE matnr,
+             werks   TYPE werks_d,
+             lgort   TYPE lgort_d,
+             menge_h TYPE menge_d,
+             menge_s TYPE menge_d,
+           END OF gty_mseg.
+    DATA: gt_wms  TYPE STANDARD TABLE OF gty_wms,
+          gt_mara TYPE STANDARD TABLE OF gty_mara,
+          gt_mseg TYPE STANDARD TABLE OF gty_mseg.
+    DATA: gt_mard TYPE STANDARD TABLE OF gty_mard.
+    DATA: gt_param_table TYPE zca_enh_para_tt.
+    DATA: gv_success TYPE boolean.
+    DATA: gt_file  TYPE TABLE OF eps2fili,
+          gv_subrc TYPE sy-subrc.
+
+* Constant
+    CONSTANTS: gc_ricef_id     TYPE ze_ricef_id VALUE 'PTP-I-162',
+               gc_subarea      TYPE ze_sub_area VALUE 'WMS_INVENTORY',
+               gc_fn_warehouse TYPE ze_fieldname VALUE 'WAREHOUSE',
+               gc_fn_bwart_h   TYPE ze_fieldname VALUE 'BWART_H',
+               gc_fn_bwart_s   TYPE ze_fieldname VALUE 'BWART_S',
+               gc_fn_sloc      TYPE ze_fieldname VALUE 'STORAGE_LOC',
+               gc_invsnap      TYPE tabname VALUE 'ZPTP_T_INVVSNAP'.
+    METHODS main.
+    METHODS open_file_dialog CHANGING cv_path TYPE epsdirnam OPTIONAL.
+    METHODS update_custom_table.
+    METHODS get_wms_data.
+    METHODS get_sap_data.
+    METHODS arch_delete_app_files.
+ENDCLASS.
