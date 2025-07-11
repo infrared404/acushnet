@@ -1,0 +1,29 @@
+*&---------------------------------------------------------------------*
+*& Report ZPTP_I_INVSNAP_01                                            *
+*&---------------------------------------------------------------------*
+*& Title        :  Update WMS & SAP Inventory                          *
+*&                 invetory data                                       *
+*& Item Ref     :  PTP-I-162                                           *
+*& Date         :  11/12/2024                                          *
+*& Author       :  Ahmad Aizat/AALI/JPADAKAN                           *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 11/12/2024   AALI     DS4K902135   Initial Development              *
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-t01.
+  PARAMETERS p_inb TYPE epsdirnam MODIF ID app OBLIGATORY.                             " Application file path
+SELECTION-SCREEN END OF BLOCK b1 .
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-t02.
+  PARAMETERS p_arch TYPE epsdirnam MODIF ID app  OBLIGATORY.                             " Application file path
+SELECTION-SCREEN END OF BLOCK b2.
+
+SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE TEXT-t03.
+  SELECTION-SCREEN BEGIN OF LINE.
+    SELECTION-SCREEN POSITION 23.
+    PARAMETERS p_delarc AS CHECKBOX.
+    SELECTION-SCREEN COMMENT 25(30) TEXT-t04.
+  SELECTION-SCREEN END OF LINE.
+SELECTION-SCREEN END OF BLOCK b3.
