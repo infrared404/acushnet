@@ -1,0 +1,328 @@
+*&---------------------------------------------------------------------*
+*& Report ZPTP_R_BATCH_DETERMINE
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zptp_r_batch_determine.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  TABLES
+*"      IT_IDOC_DATA TYPE  IDOC_DATA
+*"----------------------------------------------------------------------
+*& Title        : MIGO document is created in S4 from the IDOC that    *
+*&              : arrives from Manhattan via webmethods. Batch (CHARG) *
+*&                is blank in the incoming IDOC that leads to error    *
+*&                "Enter Batch" while posting the MIGO document.       *
+*&                Below code will auto determine the batch based on    *
+*&                stock availability.                                  *
+*& Item Ref     : PTP-I-158                                            *
+*& Date         : 01/02/2025                                           *
+*& Author       : Gizala Kanuga                                        *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+*&---------------------------------------------------------------------*
+
+DATA: lv_item TYPE char77.
+
+SELECT-OPTIONS: s_sdata FOR lv_item.
+
+*IF sy-uname = 'GKANUGA' OR sy-uname = 'AKALISAMY' OR sy-uname = 'PSIVAKUMAR'.
+
+CONSTANTS: lc_kappl_me     TYPE kappl     VALUE 'ME',
+           lc_kalsm_me0001 TYPE kalsma_ch VALUE 'ME0001',
+           lc_x            TYPE char1     VALUE 'X'.
+
+TYPES: BEGIN OF ty_matnr,
+         material TYPE matnr18, "char18
+         matnrl   TYPE matnr,   "char40
+         plant    TYPE werks_d,
+       END OF ty_matnr.
+
+DATA: ls_komph            TYPE komph,
+      ls_x_bdcom          TYPE bdcom,
+      lt_matnr            TYPE TABLE OF ty_matnr,
+      ls_item             TYPE e1bp2017_gm_item_create,
+      lt_item             TYPE TABLE OF e1bp2017_gm_item_create,
+      lt_item_new         TYPE TABLE OF e1bp2017_gm_item_create,
+      lt_imseg_batch_post TYPE TABLE OF bapi2017_gm_item_create,
+      lt_bdbatch          TYPE TABLE OF bdbatch.
+
+" IDOC Item data to internal table
+LOOP AT s_sdata ASSIGNING FIELD-SYMBOL(<lfs_idoc_data>).
+  CLEAR ls_item.
+  ls_item-material   = <lfs_idoc_data>-low+0(18). "Material
+  ls_item-plant      = <lfs_idoc_data>-low+18(4). "Plant
+  ls_item-stge_loc   = <lfs_idoc_data>-low+22(4). "Storage Loc
+  ls_item-move_type  = <lfs_idoc_data>-low+26(3). "Movement Type
+  ls_item-spec_stock = <lfs_idoc_data>-low+29(1). "Special Stock
+  ls_item-entry_qnt  = <lfs_idoc_data>-low+30(15)."Quantity
+  ls_item-move_mat   = ls_item-material.          "Material
+  ls_item-move_stloc = ls_item-stge_loc.          "Storage Loc
+  APPEND ls_item TO lt_item.                                "#EC ENHOK
+ENDLOOP.
+
+IF lt_item[] IS NOT INITIAL.
+  "Material field length issue
+  lt_matnr = CORRESPONDING #( lt_item ).
+  LOOP AT lt_matnr ASSIGNING FIELD-SYMBOL(<lfs_matnr>).
+    CALL FUNCTION 'CONVERSION_EXIT_MATN5_INPUT'
+      EXPORTING
+        input        = <lfs_matnr>-material
+      IMPORTING
+        output       = <lfs_matnr>-matnrl
+      EXCEPTIONS
+        length_error = 1
+        OTHERS       = 2.
+    IF sy-subrc <> 0.
+* Implement suitable error handling here
+    ENDIF.
+  ENDLOOP.
+  SORT lt_matnr BY material.
+
+  " Fetch UOM and MTVFP for a given Material + Plant
+  IF lt_matnr IS NOT INITIAL.
+    SELECT mara~matnr,
+           mara~meins,
+           marc~mtvfp,
+           marc~werks
+      FROM mara AS mara
+     INNER JOIN marc AS marc
+        ON marc~matnr = mara~matnr
+      INTO TABLE @DATA(lt_mara)
+       FOR ALL ENTRIES IN @lt_matnr
+     WHERE mara~matnr = @lt_matnr-matnrl
+       AND marc~werks = @lt_matnr-plant.
+    IF sy-subrc = 0.
+      SORT lt_mara BY matnr werks.
+    ELSE.
+      CLEAR lt_mara[].
+    ENDIF.
+  ENDIF.
+
+  " Prepare data for batch determination
+  LOOP AT lt_item[] ASSIGNING FIELD-SYMBOL(<lfs_item>).
+    IF <lfs_item>-batch IS INITIAL.
+      " Material length issue
+      READ TABLE lt_matnr
+           ASSIGNING <lfs_matnr>
+           WITH KEY material = <lfs_item>-material BINARY SEARCH.
+      IF sy-subrc = 0.
+        " Fill structure required for auto batch determination
+        CLEAR ls_komph.
+        ls_komph-matnr = <lfs_matnr>-matnrl.
+        ls_komph-werks = <lfs_item>-plant.
+        ls_komph-lgort = <lfs_item>-stge_loc.
+        ls_komph-bwart = <lfs_item>-move_type.
+        ls_komph-umwrk = <lfs_item>-move_plant.
+        ls_komph-umlgo = <lfs_item>-move_stloc.
+
+        CLEAR ls_x_bdcom.
+        ls_x_bdcom-kappl = lc_kappl_me.
+        ls_x_bdcom-kalsm = lc_kalsm_me0001.
+        ls_x_bdcom-menge = <lfs_item>-entry_qnt.
+        ls_x_bdcom-erfmg = <lfs_item>-entry_qnt.
+        ls_x_bdcom-kzvbp = 'L'.
+        ls_x_bdcom-nodia = 'X'.
+        ls_x_bdcom-nolck = 'X'.
+        ls_x_bdcom-bwart = <lfs_item>-move_type.
+        READ TABLE lt_mara
+              INTO DATA(ls_mara)
+              WITH KEY matnr = <lfs_matnr>-matnrl
+                       werks = <lfs_matnr>-plant BINARY SEARCH.
+        IF sy-subrc = 0.
+          ls_x_bdcom-meins = ls_mara-meins.
+          ls_x_bdcom-erfme = ls_mara-meins.
+          ls_x_bdcom-mtvfp = ls_mara-mtvfp.
+        ENDIF.
+
+        " Fetch debit/credit indicator and Posting String based on Movement Type
+        SELECT SINGLE shkzg,
+                      bustr,
+                      CASE WHEN shkzg = 'H' THEN '01'
+                           ELSE '02'
+                      END AS cnt02
+          FROM t156
+          INTO @DATA(ls_t156)
+         WHERE bwart = @<lfs_item>-move_type.
+        IF sy-subrc = 0.
+          " Fetch posting string quantities using reference
+          SELECT SINGLE bustm
+            FROM t156sy
+            INTO @DATA(lv_bustm)
+           WHERE bustr = @ls_t156-bustr
+             AND wertu = @lc_x
+             AND mengu = @lc_x
+             AND sobkz = @<lfs_item>-spec_stock. "#EC CI_NOORDER ##WARN_OK
+          " Fetch Stock type of Goods Movement
+          IF sy-subrc = 0.
+            SELECT SINGLE lbbsa
+              FROM t156m
+              INTO @ls_x_bdcom-lbbsa
+             WHERE bustm = @lv_bustm
+               AND zustd = @space
+               AND cnt02 = @ls_t156-cnt02.
+            IF sy-subrc NE 0.
+              " Fetch Stock type of Good Movement if not found in T156M
+              SELECT SINGLE lbbsa
+                FROM t156c
+                INTO @ls_x_bdcom-lbbsa
+               WHERE sobkz = @space.          "#EC CI_NOORDER ##WARN_OK
+            ENDIF.
+          ENDIF.
+        ENDIF.
+
+        " Fetch auto determined batch proposed by S4
+        CALL FUNCTION 'VB_BATCH_DETERMINATION'
+          EXPORTING
+            i_komph                 = ls_komph
+            x_bdcom                 = ls_x_bdcom
+          TABLES
+            e_bdbatch               = lt_bdbatch
+          EXCEPTIONS
+            no_material             = 1
+            no_plant                = 2
+            no_application          = 3
+            function_not_possible   = 4
+            condition_not_found     = 5
+            classtype_not_found     = 6
+            classtype_not_active    = 7
+            no_base_unit            = 8
+            no_unit                 = 9
+            conversion_not_found    = 10
+            conversion_overflow     = 11
+            missing_entry_t156c     = 12
+            conversion_type_invalid = 13
+            division_by_zero        = 14
+            data_mismatch           = 15
+            material_not_found      = 16
+            no_quantity             = 17
+            invalid_duplicate_batch = 18
+            OTHERS                  = 19.
+        IF sy-subrc = 0.
+          IF lt_bdbatch IS NOT INITIAL.
+            " System can propose more than one batch in case of
+            " in-sufficient available stock
+
+*              READ TABLE lt_bdbatch INTO DATA(ls_bdbatch) INDEX 1.
+*              IF sy-subrc = 0.
+            DATA(lv_count) = lines( lt_bdbatch ).
+            IF lv_count > 0.
+*              READ TABLE lt_bdbatch INTO DATA(ls_bdbatch) INDEX 1.
+*              IF sy-subrc = 0.
+*                <lfs_item>-batch = ls_bdbatch-charg.
+*                <lfs_item>-po_pr_qnt = <lfs_item>-entry_qnt.
+*              ENDIF.
+*            ELSE.
+              CLEAR: ls_item.
+              LOOP AT lt_bdbatch INTO DATA(ls_bdbatch).
+                MOVE-CORRESPONDING <lfs_item> TO ls_item.
+                ls_item-batch     = ls_bdbatch-charg.
+                ls_item-po_pr_qnt = ls_item-entry_qnt.
+                ls_item-entry_qnt = ls_bdbatch-menge.
+                APPEND ls_item TO lt_item_new.
+              ENDLOOP.
+            ENDIF.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+ENDIF.
+" Assign derived batch to IDOC Segment
+
+DATA: wa_layout   TYPE slis_layout_alv,
+      it_events   TYPE slis_t_event,
+      lt_fieldcat TYPE slis_t_fieldcat_alv,
+      ls_fieldcat TYPE slis_fieldcat_alv,
+      wa_events   LIKE LINE OF it_events.
+
+wa_layout-zebra             = 'X'. "Zebra looks
+wa_layout-colwidth_optimize = 'X'. "Column width optimized
+REFRESH: it_events.
+CLEAR: wa_events,it_events.
+wa_events-name = 'USER_COMMAND'.
+wa_events-form = 'USER_COMMAND'.
+APPEND wa_events TO it_events.
+
+CLEAR lt_fieldcat.
+
+" Define field catalog for the ALV grid (based on the structure)
+CLEAR ls_fieldcat.
+
+DATA lv_col TYPE i VALUE 0.
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'MATERIAL'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'MATERIAL'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'PLANT'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'PLANT'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'STGE_LOC'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'STGE_LOC'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'BATCH'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'BATCH'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'MOVE_TYPE'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'MOVE_TYPE'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'SPEC_STOCK'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'SPEC_STOCK'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+lv_col                = lv_col + 1.
+ls_fieldcat-col_pos   = lv_col.
+ls_fieldcat-fieldname = 'ENTRY_QNT'.
+ls_fieldcat-tabname   = 'LT_ITEM'.
+ls_fieldcat-seltext_m = 'ENTRY-QNT'.
+APPEND ls_fieldcat TO lt_fieldcat.
+
+IF lt_item_new IS NOT INITIAL.
+  REFRESH lt_item.
+  lt_item[] = lt_item_new[].
+ENDIF.
+IF lt_item IS NOT INITIAL.
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      i_callback_program = sy-repid
+      is_layout          = wa_layout
+      it_events          = it_events
+      it_fieldcat        = lt_fieldcat
+    TABLES
+      t_outtab           = lt_item
+    EXCEPTIONS
+      program_error      = 1
+      OTHERS             = 2.
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+
+ENDIF.
+
+*ENDIF.
