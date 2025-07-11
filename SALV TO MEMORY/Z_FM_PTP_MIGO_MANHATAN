@@ -1,0 +1,383 @@
+FUNCTION z_fm_ptp_migo_manhatan .
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(INPUT_METHOD) LIKE  BDWFAP_PAR-INPUTMETHD
+*"     VALUE(MASS_PROCESSING) LIKE  BDWFAP_PAR-MASS_PROC
+*"  EXPORTING
+*"     VALUE(WORKFLOW_RESULT) LIKE  BDWF_PARAM-RESULT
+*"     VALUE(APPLICATION_VARIABLE) LIKE  BDWF_PARAM-APPL_VAR
+*"     VALUE(IN_UPDATE_TASK) LIKE  BDWFAP_PAR-UPDATETASK
+*"     VALUE(CALL_TRANSACTION_DONE) LIKE  BDWFAP_PAR-CALLTRANS
+*"  TABLES
+*"      IDOC_CONTRL STRUCTURE  EDIDC
+*"      IDOC_DATA STRUCTURE  EDIDD
+*"      IDOC_STATUS STRUCTURE  BDIDOCSTAT
+*"      RETURN_VARIABLES STRUCTURE  BDWFRETVAR
+*"      SERIALIZATION_INFO STRUCTURE  BDI_SER
+*"  EXCEPTIONS
+*"      WRONG_FUNCTION_CALLED
+*"----------------------------------------------------------------------
+*"  NOTE: This is a copy of 'BAPI_IDOC_INPUT1',
+*"        enhanced for customising
+*&---------------------------------------------------------------------*
+*& Title        :  Inbound Manhattan IDOCs
+*& Item Ref     :  PTP-I-158
+*& Date         :  02/07/2025
+*& Author       :  Gizala Kanuga
+**&---------------------------------------------------------------------*
+**& M O D I F I C A T I O N   L O G                                     *
+**&---------------------------------------------------------------------*
+**& Date         Programmer    Request #   Description                  *
+**&---------------------------------------------------------------------*
+**& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+**&---------------------------------------------------------------------*
+  CONSTANTS: c_processed_idocs(15) VALUE 'Processed_IDOCs',
+             c_appl_objects(12)    VALUE 'Appl_Objects'.
+
+  CONSTANTS: lc_doctyp  TYPE edi_idoctp   VALUE 'FSHGMCR01',
+             lc_mestyp  TYPE ze_fieldname VALUE 'MBGMCR',
+             lc_mtn     TYPE char3        VALUE 'MTN',
+             lc_subarea TYPE ze_sub_area  VALUE 'POLINE_UPDATE'.
+
+  DATA: lv_function_name TYPE rs38l-name,
+        ls_return_info   TYPE bapiret2,
+        lv_ricef_id      TYPE ze_ricef_id,
+        lv_migo_create   TYPE flag.
+
+  READ TABLE idoc_contrl[] INTO idoc_contrl INDEX 1.
+  IF idoc_contrl-idoctp = lc_doctyp AND
+     idoc_contrl-mestyp = lc_mestyp.
+
+    " Get the relavent RICEF ID from config table
+    SELECT SINGLE ricefid
+      INTO @lv_ricef_id
+      FROM zotc_t_idocconfi
+      WHERE mestyp = @idoc_contrl-mestyp AND
+            idoctp = @idoc_contrl-idoctp AND
+            mescod = @idoc_contrl-mescod AND
+            mesfct = @idoc_contrl-mesfct AND
+            partyp = @idoc_contrl-rcvprt AND
+            direct = @idoc_contrl-direct.
+
+    " Check the enhancement and parameter tables
+    DATA(ls_status) = zcl_ca_enh_util=>get_instance( )->check_enh( iv_ricef_id = lv_ricef_id   " RICEF ID Object
+                                                                   iv_subarea  = lc_subarea ). " Sub Area
+    " Proceed only when enhancement is active
+    IF ls_status-active IS NOT INITIAL.
+
+      " Additional validations to call FM
+      IF idoc_contrl-mesfct EQ lc_mtn.
+*------------------------------------------
+*        " Call FM to determine batch
+*        CALL FUNCTION 'Z_FM_PTP_MIGO_MANHATTAN'
+*          TABLES
+*            it_idoc_data = idoc_data.
+
+        CONSTANTS: lc_sdata TYPE rsscr_name VALUE 'S_SDATA',
+                   lc_s     TYPE char1 VALUE 'S',
+                   lc_i     TYPE char1 VALUE 'I',
+                   lc_eq    TYPE char2 VALUE 'EQ'.
+
+        TYPES: BEGIN OF ty_item,
+                 data TYPE char60,
+               END OF ty_item,
+
+               BEGIN OF ty_char,
+                 char(189) TYPE c,
+               END OF ty_char.
+
+        DATA : "lt_item          TYPE TABLE OF ty_item,
+          ls_item          TYPE ty_item,
+          ls_batch_data    TYPE e1bp2017_gm_item_create,
+          "ls_idoc_item     TYPE e1bp2017_gm_item_create,
+*               it_batch_data    TYPE TABLE OF e1bp2017_gm_item_create,
+          lt_batch_data    TYPE TABLE OF e1bp2017_gm_item_create,
+          lt_idoc_data_new TYPE TABLE OF edidd,
+          ls_idoc_data_new TYPE edidd,
+          lt_rspar_tab     TYPE STANDARD TABLE OF rsparams,
+          ls_rspar_tab     TYPE rsparams,
+          lv_flag          TYPE boolean.
+
+        LOOP AT idoc_data ASSIGNING FIELD-SYMBOL(<lfs_idoc_data>)
+          WHERE segnam = 'E1BP2017_GM_ITEM_CREATE'.
+
+          CLEAR ls_item.
+          CONCATENATE : <lfs_idoc_data>-sdata+0(18) "Material
+                        <lfs_idoc_data>-sdata+18(4) "Plant
+                        <lfs_idoc_data>-sdata+22(4) "Storage Loc
+                        <lfs_idoc_data>-sdata+36(3) "Movement Type
+                        <lfs_idoc_data>-sdata+41(1) "Special Stock
+                        <lfs_idoc_data>-sdata+90(15)"Quantity
+                INTO ls_item-data RESPECTING BLANKS.
+
+          CLEAR ls_rspar_tab.
+          ls_rspar_tab-selname = lc_sdata.
+          ls_rspar_tab-kind    = lc_s.
+          ls_rspar_tab-sign    = lc_i.
+          ls_rspar_tab-option  = lc_eq.
+          ls_rspar_tab-low     = ls_item.
+          APPEND ls_rspar_tab TO lt_rspar_tab.
+
+*          lt_rspar_tab = VALUE #( ( selname = lc_sdata
+*                                    kind    = lc_s
+*                                    sign    = lc_i
+*                                    option  = lc_eq
+*                                    low     = ls_item
+*                                  )
+*                                ).
+        ENDLOOP.
+
+        cl_salv_bs_runtime_info=>set( EXPORTING display  = abap_false
+                                                metadata = abap_false
+                                                data     = abap_true ).
+
+        SUBMIT zptp_r_batch_determine
+          WITH SELECTION-TABLE lt_rspar_tab[]
+     EXPORTING LIST TO MEMORY AND RETURN.
+
+        DATA: go_data TYPE REF TO data.
+        FIELD-SYMBOLS: <gf_data> TYPE table.
+        TRY.
+            cl_salv_bs_runtime_info=>get_data_ref(
+                              IMPORTING r_data = go_data ).
+            ASSIGN go_data->* TO <gf_data>.
+          CATCH cx_salv_bs_sc_runtime_info ##NO_HANDLER.
+            MESSAGE TEXT-001 TYPE 'E'. "'Unable to retrieve ALV data
+        ENDTRY.
+
+        IF <gf_data> IS ASSIGNED.
+          CLEAR lt_batch_data[].
+          lt_batch_data[] = CORRESPONDING #( <gf_data> ).
+
+*-----------------------------------------------------
+*- Batch Split logic
+          DATA(lt_parent) = idoc_data[].
+          DATA(lv_totrecords) = lines( lt_parent ).
+          DATA(lt_child)  = idoc_data[].
+
+          LOOP AT lt_parent INTO DATA(ls_parent).
+            IF ls_parent-segnam = 'E1BP2017_GM_ITEM_CREATE'.
+              lv_flag = abap_false.
+              LOOP AT lt_batch_data INTO ls_batch_data
+                WHERE material  = ls_parent-sdata+0(18) AND
+                      plant     = ls_parent-sdata+18(4) AND
+                      stge_loc  = ls_parent-sdata+22(4) AND
+                      move_type = ls_parent-sdata+36(3).
+                DATA(lv_qnty) = ls_parent-sdata+90(15).
+                DATA(lv_po_pr_qnt) = ls_batch_data-po_pr_qnt.
+                CONDENSE : lv_qnty,lv_po_pr_qnt .
+
+                IF lv_po_pr_qnt = lv_qnty.
+                  IF lv_flag = abap_false.
+                    "Existing entry to copy as it is
+                    CLEAR ls_idoc_data_new.
+                    MOVE-CORRESPONDING ls_parent TO ls_idoc_data_new.
+                    ls_idoc_data_new-sdata+90(15) = ls_batch_data-entry_qnt.
+                    ls_idoc_data_new-sdata+26(10) = ls_batch_data-batch.
+                    APPEND ls_idoc_data_new TO lt_idoc_data_new.
+                    LOOP AT lt_child INTO DATA(ls_child) WHERE psgnum = ls_parent-segnum.
+                      CLEAR ls_idoc_data_new.
+                      MOVE-CORRESPONDING ls_child TO ls_idoc_data_new.
+                      APPEND ls_idoc_data_new TO lt_idoc_data_new.
+                      CLEAR ls_idoc_data_new.
+                    ENDLOOP.
+                    lv_flag = abap_true.
+                  ELSE.
+                    "New entry to be created
+                    lv_totrecords = lv_totrecords + 1.
+                    CLEAR ls_idoc_data_new.
+                    MOVE-CORRESPONDING ls_parent TO ls_idoc_data_new.
+                    ls_idoc_data_new-segnum       = lv_totrecords.
+                    ls_idoc_data_new-psgnum       = ls_parent-psgnum.
+                    ls_idoc_data_new-sdata+90(15) = ls_batch_data-entry_qnt.
+                    ls_idoc_data_new-sdata+26(10) = ls_batch_data-batch.
+                    APPEND ls_idoc_data_new TO lt_idoc_data_new.
+                    LOOP AT lt_child INTO ls_child WHERE psgnum = ls_parent-segnum.
+                      DATA(lv_psgnum) = ls_idoc_data_new-segnum.
+                      CLEAR ls_idoc_data_new.
+                      lv_totrecords = lv_totrecords + 1.
+                      MOVE-CORRESPONDING ls_child TO ls_idoc_data_new.
+                      ls_idoc_data_new-segnum       = lv_totrecords.
+                      ls_idoc_data_new-psgnum       = lv_psgnum.
+                      APPEND ls_idoc_data_new TO lt_idoc_data_new.
+                    ENDLOOP.
+                  ENDIF.
+                ENDIF.
+              ENDLOOP.
+            ENDIF.
+          ENDLOOP.
+
+          LOOP AT lt_parent
+                  INTO ls_parent.
+            READ TABLE lt_idoc_data_new INTO ls_idoc_data_new
+                  WITH KEY segnum = ls_parent-segnum
+                           psgnum = ls_parent-psgnum.
+            IF sy-subrc NE 0.
+              APPEND ls_parent TO lt_idoc_data_new.
+            ENDIF.
+            CLEAR: ls_parent,
+                   ls_idoc_data_new.
+          ENDLOOP.
+          SORT lt_idoc_data_new BY segnum.
+          CLEAR idoc_data[].
+          idoc_data[] = lt_idoc_data_new[].
+*-----------------------------------------------------
+*          LOOP AT idoc_data ASSIGNING <lfs_idoc_data> WHERE segnam = 'E1BP2017_GM_ITEM_CREATE'.
+*            CLEAR ls_item.
+*            READ TABLE it_batch_data
+*                  INTO ls_idoc_item
+*                  WITH KEY material  = <lfs_idoc_data>-sdata+0(18)
+*                           plant     = <lfs_idoc_data>-sdata+18(4)
+*                           stge_loc  = <lfs_idoc_data>-sdata+22(4)
+*                           move_type = <lfs_idoc_data>-sdata+36(3).
+*            IF sy-subrc = 0.
+*              <lfs_idoc_data>-sdata+26(10) = ls_idoc_item-batch.
+*            ENDIF.
+*          ENDLOOP.
+
+          " Proceed with FM IDOC_INPUT_MBGMCR after batch is determined
+          lv_function_name = 'BAPI_IDOC_INPUT1'. "'IDOC_INPUT_MBGMCR'.
+
+          lv_migo_create = abap_true.
+        ELSE.
+          lv_migo_create = abap_false.
+        ENDIF.
+      ELSE.
+        lv_migo_create = abap_false.
+      ENDIF.
+
+      " Create Transfer Posting
+      IF lv_migo_create = abap_true.
+        IF NOT lv_function_name IS INITIAL.
+          CALL FUNCTION 'FUNCTION_EXISTS'
+            EXPORTING
+              funcname           = lv_function_name
+            EXCEPTIONS
+              function_not_exist = 1
+              OTHERS             = 2.
+          IF sy-subrc = 0.
+            " Call document posting
+            CALL FUNCTION lv_function_name
+              EXPORTING
+                input_method          = input_method
+                mass_processing       = mass_processing
+              IMPORTING
+                workflow_result       = workflow_result
+                application_variable  = application_variable
+                in_update_task        = in_update_task
+                call_transaction_done = call_transaction_done
+              TABLES
+                idoc_contrl           = idoc_contrl
+                idoc_data             = idoc_data
+                idoc_status           = idoc_status
+                return_variables      = return_variables
+                serialization_info    = serialization_info
+              EXCEPTIONS
+                wrong_function_called = 1
+                OTHERS                = 2.
+            IF sy-subrc = 0.
+              READ TABLE idoc_status[] INTO idoc_status WITH KEY msgty = 'A'.
+              IF sy-subrc = 0.
+                CLEAR ls_return_info.
+                CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'
+                  IMPORTING
+                    return = ls_return_info.
+                IF NOT ls_return_info IS INITIAL.
+                  workflow_result = '99999'.
+                  CLEAR idoc_status.
+                  idoc_status-msgty    = 'A'.
+                  idoc_status-msgid    = ls_return_info-id.
+                  idoc_status-msgno    = ls_return_info-number.
+                  idoc_status-appl_log = ls_return_info-log_no.
+                  idoc_status-msgv1    = ls_return_info-message_v1.
+                  idoc_status-msgv2    = ls_return_info-message_v2.
+                  idoc_status-msgv3    = ls_return_info-message_v3.
+                  idoc_status-msgv4    = ls_return_info-message_v4.
+                  idoc_status-status   = '51'.
+                  idoc_status-repid    = sy-repid.
+                  CLEAR return_variables.
+                  return_variables-wf_param = 'Error_IDOCs'.
+                  LOOP AT idoc_contrl[] INTO idoc_contrl.
+                    idoc_status-docnum = idoc_contrl-docnum.
+                    APPEND idoc_status TO idoc_status[].
+                    return_variables-doc_number = idoc_contrl-docnum.
+                    APPEND return_variables TO return_variables[].
+                  ENDLOOP.
+                ENDIF.
+              ENDIF.
+              READ TABLE return_variables[] INTO return_variables WITH KEY
+                                          wf_param = c_processed_idocs.
+              IF sy-subrc = 0.
+                READ TABLE return_variables[] INTO return_variables WITH KEY
+                                            wf_param = c_appl_objects.
+                IF sy-subrc <> 0 OR
+                  ( sy-subrc = 0 AND return_variables-doc_number IS INITIAL ).
+                  CLEAR return_variables.
+                ENDIF.
+              ENDIF.
+            ELSEIF sy-subrc = 1.
+              RAISE wrong_function_called.
+            ENDIF.
+          ELSE.
+            " Inbound function module does not exist
+            workflow_result = '99999'.
+            CLEAR idoc_status.
+            idoc_status-status = '51'.
+            idoc_status-msgid  = 'B1'.
+            idoc_status-msgty  = 'E'.
+            idoc_status-msgno  = '500'.
+            idoc_status-repid  = sy-repid.
+            CLEAR return_variables.
+            return_variables-wf_param = 'Error_IDOCs'.
+            LOOP AT idoc_contrl[] INTO idoc_contrl.
+              idoc_status-docnum = idoc_contrl-docnum.
+              idoc_status-msgv1 = idoc_contrl-mestyp.
+              APPEND idoc_status TO idoc_status[].
+              return_variables-doc_number = idoc_contrl-docnum.
+              APPEND return_variables TO return_variables[].
+            ENDLOOP.
+          ENDIF.
+        ELSE.
+          " Inbound function module does not exist
+          workflow_result = '99999'.
+          CLEAR idoc_status.
+          idoc_status-status = '51'.
+          idoc_status-msgid  = 'B1'.
+          idoc_status-msgty  = 'E'.
+          idoc_status-msgno  = '500'.
+          idoc_status-repid  = sy-repid.
+          CLEAR return_variables.
+          return_variables-wf_param = 'Error_IDOCs'.
+          LOOP AT idoc_contrl[] INTO idoc_contrl.
+            idoc_status-docnum = idoc_contrl-docnum.
+            idoc_status-msgv1 = idoc_contrl-mestyp.
+            APPEND idoc_status TO idoc_status[].
+            return_variables-doc_number = idoc_contrl-docnum.
+            APPEND return_variables TO return_variables[].
+          ENDLOOP.
+        ENDIF.
+      ENDIF.
+
+    ELSE.
+      " Error with status 51 saying interface is deactivate in enhancement table
+      idoc_status[] = VALUE #( ( docnum      = idoc_contrl-docnum
+                                 status      = '51'
+                                 msgid       = 'ZPTP'
+                                 msgty       = 'E'
+                                 msgno       = 011
+                                 msgv1       = lv_ricef_id ) ).
+    ENDIF.
+
+  ELSE.
+    " Error with status 51 saying Incorrect Basic Type
+    idoc_status[] = VALUE #( (  docnum      = idoc_contrl-docnum
+                                status      = '51'
+                                msgid       = 'ZOTC'
+                                msgty       = 'E'
+                                msgno       = 012
+                                msgv1       = idoc_contrl-idoctp
+                                msgv2       = idoc_contrl-mestyp ) ) .
+
+  ENDIF.
+ENDFUNCTION.                                             "#EC CI_VALPAR
