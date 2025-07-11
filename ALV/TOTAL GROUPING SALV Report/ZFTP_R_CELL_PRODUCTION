@@ -1,0 +1,1010 @@
+*&---------------------------------------------------------------------*
+*& Report ZFTP_R_CELL_PRODUCTION
+*&---------------------------------------------------------------------*
+*& Title        : Customer Report for Cell Production
+*& Item Ref     : RTR-R-143
+*& Date         : 02/27/2025
+*& Author       : Gizala Kanuga / GKANUGA
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 03/03/2025   GKANUGA      DS4K904368   Initial Creation             *
+*&---------------------------------------------------------------------*
+
+REPORT zftp_r_cell_production.
+
+"Global Declarations
+INCLUDE zftp_r_cellprod_top.
+
+"Selection Screen
+INCLUDE zftp_r_cellprod_sel.
+
+"Processing Unit
+INCLUDE zftp_r_cellprod_sub.
+
+START-OF-SELECTION.
+  CALL METHOD lcl_cellprod=>get_data( ).
+
+
+
+
+
+ZFTP_R_CELLPROD_SEL
+*&---------------------------------------------------------------------*
+*& Include          ZFTP_R_CELLPROD_SEL
+*&---------------------------------------------------------------------*
+*& Title        : Selection Screen for Cell Production
+*& Item Ref     : RTR-R-143
+*& Date         : 02/27/2025
+*& Author       : Gizala Kanuga / GKANUGA
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 03/03/2025   GKANUGA      DS4K904368   Initial Creation             *
+*&---------------------------------------------------------------------*
+
+TABLES: afpo,
+        mseg,
+        /scwm/ordim_c.
+
+CONSTANTS: lc_s TYPE char1 VALUE 'S',
+           lc_c TYPE char1 VALUE 'C',
+           lc_e TYPE char1 VALUE 'E',
+           lc_i TYPE char1 VALUE 'I'.
+DATA    : lv_nlpla TYPE /scwm/ordim_c-nlpla.
+SELECTION-SCREEN : BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+  PARAMETERS     : p_werks  TYPE afpo-dwerk DEFAULT 'M130' OBLIGATORY. "Plant
+  SELECT-OPTIONS : s_budat  FOR  mseg-budat_mkpf, "Posting Date
+*                   s_lgort  FOR  mseg-lgort, "Storage Location
+                   s_nlpla  FOR  /scwm/ordim_c-nlpla, "Cell Number
+                   s_matnr  FOR  afpo-matnr. "Product
+  PARAMETERS     : p_prdtyp TYPE char1,      "Product Type
+                   p_bwart  TYPE mseg-bwart DEFAULT '101'. "Movement Type
+SELECTION-SCREEN : END OF BLOCK b1.
+
+SELECTION-SCREEN : BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
+  PARAMETERS     : p_basic  RADIOBUTTON GROUP rg DEFAULT 'X', "Cell Production Report
+                   p_detail RADIOBUTTON GROUP rg ##NEEDED.
+SELECTION-SCREEN : END OF BLOCK b2.
+
+AT SELECTION-SCREEN ON BLOCK b1.
+  SELECT SINGLE @abap_true
+    FROM t001w
+   WHERE werks = @p_werks
+    INTO @DATA(lv_flag).
+  IF lv_flag IS INITIAL.
+    MESSAGE TEXT-004 TYPE lc_e DISPLAY LIKE lc_i.
+  ENDIF.
+
+  IF p_prdtyp IS NOT INITIAL AND p_prdtyp NE lc_c AND p_prdtyp NE lc_s .
+    MESSAGE TEXT-003 TYPE lc_e DISPLAY LIKE lc_i.
+  ENDIF.
+
+AT SELECTION-SCREEN OUTPUT.
+  LOOP AT SCREEN.
+    IF screen-name = 'P_BWART' .
+      screen-input = 0.
+      MODIFY SCREEN.
+    ENDIF.
+  ENDLOOP.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR s_nlpla-low.
+  PERFORM f4_help_for_nlpla CHANGING s_nlpla-low.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR s_nlpla-high.
+  PERFORM f4_help_for_nlpla CHANGING s_nlpla-high.
+FORM f4_help_for_nlpla CHANGING nlpla TYPE /scwm/ordim_c-nlpla.
+  TYPES: BEGIN OF ty_nlpla,
+           lgnum TYPE /scwm/lgnum,
+           nltyp TYPE /scwm/ltap_nltyp,
+           nlpla TYPE /scwm/ltap_nlpla,
+         END OF ty_nlpla.
+  DATA: lt_nlpla TYPE STANDARD TABLE OF ty_nlpla,
+        ls_nlpla TYPE ty_nlpla.
+  SELECT lgnum nltyp nlpla
+    FROM /scwm/ordim_c
+    INTO TABLE lt_nlpla
+  WHERE lgnum = p_werks .
+  SORT lt_nlpla BY lgnum nltyp nlpla.
+  DELETE ADJACENT DUPLICATES FROM lt_nlpla.
+*
+*AT SELECTION-SCREEN ON VALUE-REQUEST FOR s_nlpla-low.
+*
+*  PERFORM f4_help_for_nlpla CHANGING s_nlpla-low.
+*
+*AT SELECTION-SCREEN ON VALUE-REQUEST FOR s_nlpla-high.
+*  PERFORM f4_help_for_nlpla CHANGING s_nlpla-high.
+*
+*FORM f4_help_for_nlpla CHANGING nlpla TYPE /scwm/ordim_c-nlpla.
+*  DATA: lt_value  TYPE TABLE OF /scwm/ordim_c WITH HEADER LINE,
+*        lt_values TYPE TABLE OF /scwm/ordim_c WITH HEADER LINE,
+  DATA :     lt_return TYPE TABLE OF ddshretval.
+*        lt_dfies  TYPE TABLE OF dfies,
+*        ls_dfies  LIKE LINE OF lt_dfies.
+*  ls_dfies-tabname = '/SCWM/ORDIM_C'.
+*  ls_dfies-fieldname = 'LGNUM'.
+*  APPEND ls_dfies TO lt_dfies.
+*    ls_dfies-tabname = '/SCWM/ORDIM_C'.
+*  ls_dfies-fieldname = 'LGTYP'.
+*  APPEND ls_dfies TO lt_dfies.
+*    ls_dfies-tabname = '/SCWM/ORDIM_C'.
+*  ls_dfies-fieldname = 'NLPLA'.
+*  ls_dfies-REPTEXT = 'Cell Number'.
+*  ls_dfies-SCRTEXT_S = 'CellNumber'.
+*  ls_dfies-SCRTEXT_M = 'Cell Number'.
+*  ls_dfies-SCRTEXT_L = 'Cell Number'.
+*  APPEND ls_dfies TO lt_dfies.
+*
+*
+*
+*
+*  " Populate lt_values with possible values for nlpla
+*  SELECT *
+*    FROM /scwm/ordim_c
+*    INTO TABLE lt_value.
+*
+*
+*  " Filter out blank or empty values
+*  LOOP AT lt_value INTO DATA(lv_value).
+*    IF lv_value IS NOT INITIAL.
+*      APPEND lv_value TO lt_values.
+*    ENDIF.
+*  ENDLOOP.
+*
+*
+*  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+*    EXPORTING
+*     ddic_structure  = '/SCWM/ORDIM_C'
+*      retfield        = 'NLPLA' ##NO_TEXT
+*      dynpprog        = sy-repid
+*      dynpnr          = sy-dynnr   ""'1000' ##NO_TEXT
+*      dynprofield     = 'S_NLPLA_LOW' """'S_NLPLA-LOW' ##NO_TEXT
+*      window_title    = 'Cell Number' ##NO_TEXT
+*      value_org       = 'S'
+*    TABLES
+*      value_tab       = lt_values
+*      return_tab      = lt_return
+*      field_tab       = lt_dfies
+*    EXCEPTIONS
+*      parameter_error = 1
+*      no_values_found = 2
+*      OTHERS          = 3.
+*
+*  IF sy-subrc <> 0.
+*    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+*            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+*  ENDIF.
+*
+*  READ TABLE lt_return INTO DATA(ls_return) INDEX 1.
+*  nlpla = ls_return-fieldval.
+
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield        = 'NLPLA'
+*     WINDOW_TITLE    =
+      value_org       = 'S'
+    TABLES
+      value_tab       = lt_nlpla
+*     FIELD_TAB       = lt_dfies
+      return_tab      = lt_return
+*     DYNPFLD_MAPPING =
+    EXCEPTIONS
+      parameter_error = 1
+      no_values_found = 2
+      OTHERS          = 3.
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+  READ TABLE lt_return INTO DATA(ls_return) INDEX 1.
+  nlpla = ls_return-fieldval.
+ENDFORM.
+
+
+ZFTP_R_CELLPROD_SUB
+*&---------------------------------------------------------------------*
+*& Include          ZFTP_R_CELLPROD_SUB
+*&---------------------------------------------------------------------*
+*& Title        : Processing Unit for Cell Production
+*& Item Ref     : RTR-R-143
+*& Date         : 02/27/2025
+*& Author       : Gizala Kanuga / GKANUGA
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 03/03/2025   GKANUGA      DS4K904368   Initial Creation             *
+*&---------------------------------------------------------------------*
+
+CLASS lcl_cellprod IMPLEMENTATION.
+
+  METHOD get_data.
+
+    CONSTANTS: lc_charid_915(3)  TYPE n VALUE '915',
+               lc_charid_910(3)  TYPE n VALUE '910',
+               lc_charid_942(3)  TYPE n VALUE '942',
+               lc_charid_909(3)  TYPE n VALUE '909',
+               lc_charid_943(3)  TYPE n VALUE '943',
+               lc_charid_946(3)  TYPE n VALUE '946',
+               lc_charid_916(3)  TYPE n VALUE '916',
+               lc_charid_948(3)  TYPE n VALUE '948',
+               lc_charid_1362(4) TYPE n VALUE '1362',
+               lc_charid_945(3)  TYPE n VALUE '945',
+               lc_charid_947(3)  TYPE n VALUE '947',
+               lc_charid_1536(4) TYPE n VALUE '1536',
+               lc_blank(1)       TYPE c VALUE ' '.
+
+    DATA: lt_aufnr            TYPE STANDARD TABLE OF ty_aufnr,
+          ls_output           TYPE ty_output,
+          lt_charact_val_acts TYPE /sapapo/om_charact_val_tab,
+          lt_output           TYPE STANDARD TABLE OF ty_output,
+          lt_ordkey           TYPE tty_ordkey.
+
+    " Production Order data
+    SELECT afpo~aufnr,
+           afpo~posnr,
+           afpo~kdauf,
+           afpo~kdpos,
+           CASE afpo~kdauf
+               WHEN ' ' THEN 'S'
+               ELSE 'C'
+           END AS product_type,
+           afpo~dauat,
+           afpo~matnr,
+           afpo~psmng,
+           mara~matkl,
+           t023t~wgbez,
+           mseg~mblnr,
+           mseg~mjahr,
+           mseg~bwart,
+*           mseg~lgort,
+           mseg~menge,
+           mseg~budat_mkpf,
+           mseg~werks,
+           CASE WHEN mseg~bwart = '101'
+            THEN ordim_c~nlpla
+            ELSE ' '
+           END AS nlpla
+      FROM afpo AS afpo
+     INNER JOIN mara AS mara
+        ON mara~matnr = afpo~matnr
+     INNER JOIN t023t AS t023t                         "#EC CI_BUFFJOIN
+        ON t023t~matkl = mara~matkl
+      LEFT OUTER JOIN mseg AS mseg
+        ON mseg~aufnr = afpo~aufnr
+LEFT OUTER JOIN /scwm/ordim_c AS ordim_c
+    ON ordim_c~prod_order = afpo~aufnr
+
+      INTO TABLE @DATA(lt_afpo)
+     WHERE afpo~dwerk       = @p_werks
+       AND mseg~budat_mkpf IN @s_budat
+*       AND mseg~lgort      IN @s_lgort
+       AND afpo~matnr      IN @s_matnr
+       AND mseg~bwart       = @p_bwart
+       AND ordim_c~nlpla   IN @s_nlpla.
+
+    IF lt_afpo IS NOT INITIAL.
+
+      IF p_prdtyp IS NOT INITIAL.
+        " Product Type can be C or S
+        DELETE lt_afpo WHERE product_type NE p_prdtyp.
+      ENDIF.
+      SORT lt_afpo BY aufnr.
+      " Production Orders fetched
+      lt_aufnr = CORRESPONDING #( lt_afpo MAPPING aufnr = aufnr ).
+      IF lt_aufnr IS NOT INITIAL.
+        SORT lt_aufnr BY aufnr.
+        DELETE ADJACENT DUPLICATES FROM lt_aufnr COMPARING aufnr.
+        " Get the characteristics of Production Order
+        get_characteristics( EXPORTING it_aufnr            = lt_aufnr
+                             IMPORTING et_charact_val_acts = lt_charact_val_acts
+                                       et_ordkey           = lt_ordkey ).
+      ENDIF.
+
+      " Gathering the data in the required format
+      CLEAR lt_output[].
+      LOOP AT lt_afpo INTO DATA(ls_afpo).
+        CLEAR ls_output.
+        ls_output-aufnr        = ls_afpo-aufnr.
+        ls_output-kdauf        = ls_afpo-kdauf.
+        ls_output-kdpos        = ls_afpo-kdpos.
+        ls_output-product_type = ls_afpo-product_type.
+        ls_output-dauat        = ls_afpo-dauat.
+        ls_output-matnr        = ls_afpo-matnr.
+        ls_output-wgbez        = ls_afpo-wgbez.
+*        ls_output-lgort        = ls_afpo-lgort.
+        ls_output-nlpla        = ls_afpo-nlpla.
+        ls_output-budat_mkpf   = ls_afpo-budat_mkpf.
+        ls_output-mblnr        = ls_afpo-mblnr.
+        ls_output-werks        = ls_afpo-werks.
+
+
+        TRY .
+            DATA(ls_ordkey) = lt_ordkey[ ordno = ls_afpo-aufnr ].
+            IF ls_output-product_type = lc_c. "SO associated to PO.
+              " Custom Quantity
+              TRY.
+                  DATA(ls_charact) = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+*                                                          charact_id = lc_charid_1129 ].
+                                                          charact_id = lc_charid_1536 ].
+*                  ls_output-cust_qty  = ls_charact-quan_value * ls_afpo-psmng.
+                  ls_output-cust_qty  = ls_charact-quan_value.
+                CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+              ENDTRY.
+            ELSE.
+              ls_output-cust_qty  = ls_afpo-menge.
+            ENDIF.
+
+            " Grip Size
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_946 ].
+                ls_output-grip_size = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+
+            " Loft
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_945 ].
+                ls_output-loft = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+
+            " Lie
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_947 ].
+                ls_output-lie = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+
+            " Hand
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_915 ].
+                ls_output-hand = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Shaft Material
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_910 ].
+                ls_output-shaft_material = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Shaft Length
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_942 ].
+                ls_output-shaft_length = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Shaft Manufacturer
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_909 ].
+                ls_output-shaft_manufacturer = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Shaft Flex
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_943 ].
+                ls_output-shaft_flex = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Grip Manufacturer
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_916 ].
+                ls_output-grip_manufacturer = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Grip Model
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_948 ].
+                ls_output-grip_model = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+            " Putter Style
+            CLEAR ls_charact.
+            TRY.
+                ls_charact = lt_charact_val_acts[ object_id  = ls_ordkey-ordid
+                                                  charact_id = lc_charid_1362 ].
+                ls_output-putter_style = ls_charact-char_value.
+              CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+            ENDTRY.
+
+
+          CATCH cx_sy_itab_line_not_found ##NO_HANDLER.
+        ENDTRY.
+
+        APPEND ls_output TO lt_output.
+        CLEAR: ls_afpo,
+               ls_charact.
+      ENDLOOP.
+
+      IF lt_output IS NOT INITIAL.
+        SORT lt_output BY nlpla budat_mkpf.
+        " ALV Display
+        display_data( lt_output ).
+      ENDIF.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD display_data.
+
+    DATA: lo_alv         TYPE REF TO cl_salv_table,
+          lo_aggrs       TYPE REF TO cl_salv_aggregations,
+          lo_sort        TYPE REF TO cl_salv_sorts,
+          lo_sort_column TYPE REF TO cl_salv_sort ##NEEDED,
+          lo_columns     TYPE REF TO cl_salv_columns_table,
+          lo_column      TYPE REF TO cl_salv_column_table,
+          lo_alv_toolbar TYPE REF TO cl_salv_functions_list,
+          lo_grid_layout TYPE REF TO cl_salv_form_layout_grid.
+
+    DATA(lt_output) = it_output[].
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING
+            r_salv_table   = lo_alv
+          CHANGING
+            t_table        = lt_output
+        ).
+      CATCH cx_salv_msg ##NO_HANDLER.
+    ENDTRY.
+
+    " Toolbar
+    lo_alv_toolbar = lo_alv->get_functions( ).
+    CALL METHOD lo_alv_toolbar->set_all
+      EXPORTING
+        value = if_salv_c_bool_sap=>true.
+
+    " Column text
+    lo_columns = lo_alv->get_columns( ).
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'LGORT' ).
+        lo_column->set_long_text( value = TEXT-005 ).
+        lo_column->set_short_text( value = TEXT-026 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'BUDAT_MKPF' ).
+        lo_column->set_long_text( value = TEXT-006 ).
+        lo_column->set_short_text( value = TEXT-027 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'MBLNR' ).
+        lo_column->set_long_text( value = TEXT-025 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'WERKS' ).
+        lo_column->set_output_length( 15 ).
+        lo_column->set_long_text( value = TEXT-007 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'PRODUCT_TYPE' ).
+        lo_column->set_long_text( value = TEXT-008 ).
+        lo_column->set_short_text( value = TEXT-028 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'DAUAT' ).
+        lo_column->set_long_text( value = TEXT-009 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'WGBEZ' ).
+        lo_column->set_long_text( value = TEXT-010 ).
+        lo_column->set_short_text( value = TEXT-029 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'MATNR' ).
+        lo_column->set_long_text( value = TEXT-011 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    IF p_basic = abap_true.
+      " Hide columns for basic cell production report
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'KDAUF' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'KDPOS' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'AUFNR' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'HAND' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_MATERIAL' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_LENGTH' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_MANUFACTURER' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_FLEX' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'GRIP_SIZE' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'GRIP_MANUFACTURER' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'GRIP_MODEL' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'PUTTER_STYLE' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'LOFT' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'LIE' ).
+          lo_column->set_visible( value = abap_false ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'NLPLA' ).
+          lo_column->set_long_text( value = TEXT-033 ).
+          lo_column->set_short_text( value = TEXT-034 ).
+          lo_column->set_medium_text( value = TEXT-033 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+    ELSE.
+
+      " Display columns for Cell Production Detailed report
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'KDAUF' ).
+          lo_column->set_long_text( value = TEXT-012 ).
+          lo_column->set_short_text( value = TEXT-030 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'NLPLA' ).
+          lo_column->set_long_text( value = TEXT-033 ).
+          lo_column->set_short_text( value = TEXT-034 ).
+          lo_column->set_medium_text( value = TEXT-033 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'KDPOS' ).
+          lo_column->set_long_text( value = TEXT-013 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'AUFNR' ).
+          lo_column->set_long_text( value = TEXT-014 ).
+          lo_column->set_short_text( value = TEXT-031 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'HAND' ).
+          lo_column->set_long_text( value = TEXT-035 ).
+          lo_column->set_short_text( value = TEXT-035 ).
+          lo_column->set_medium_text( value = TEXT-035 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_MATERIAL' ).
+          lo_column->set_long_text( value = TEXT-036 ).
+          lo_column->set_short_text( value = TEXT-036 ).
+          lo_column->set_medium_text( value = TEXT-036 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_LENGTH' ).
+          lo_column->set_long_text( value = TEXT-037 ).
+          lo_column->set_short_text( value = TEXT-037 ).
+          lo_column->set_medium_text( value = TEXT-037 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_MANUFACTURER' ).
+          lo_column->set_long_text( value = TEXT-038 ).
+          lo_column->set_short_text( value = TEXT-038 ).
+          lo_column->set_medium_text( value = TEXT-038 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'SHAFT_FLEX' ).
+          lo_column->set_long_text( value = TEXT-039 ).
+          lo_column->set_short_text( value = TEXT-039 ).
+          lo_column->set_medium_text( value = TEXT-039 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'GRIP_SIZE' ).
+          lo_column->set_long_text( value = TEXT-015 ).
+          lo_column->set_short_text( value = TEXT-015 ).
+          lo_column->set_medium_text( value = TEXT-015 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'GRIP_MANUFACTURER' ).
+          lo_column->set_long_text( value = TEXT-041 ).
+          lo_column->set_short_text( value = TEXT-041 ).
+          lo_column->set_medium_text( value = TEXT-041 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'GRIP_MODEL' ).
+          lo_column->set_long_text( value = TEXT-042 ).
+          lo_column->set_short_text( value = TEXT-042 ).
+          lo_column->set_medium_text( value = TEXT-042 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'PUTTER_STYLE' ).
+          lo_column->set_long_text( value = TEXT-043 ).
+          lo_column->set_short_text( value = TEXT-043 ).
+          lo_column->set_medium_text( value = TEXT-043 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'LOFT' ).
+          lo_column->set_long_text( value = TEXT-016 ).
+          lo_column->set_short_text( value = TEXT-016 ).
+          lo_column->set_medium_text( value = TEXT-016 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+      TRY.
+          lo_column ?= lo_columns->get_column( columnname = 'LIE' ).
+          lo_column->set_long_text( value = TEXT-017 ).
+          lo_column->set_short_text( value = TEXT-017 ).
+          lo_column->set_medium_text( value = TEXT-017 ).
+        CATCH cx_salv_not_found ##NO_HANDLER.
+      ENDTRY.
+
+
+    ENDIF.
+
+    TRY.
+        lo_column ?= lo_columns->get_column( columnname = 'CUST_QTY' ).
+        lo_column->set_long_text( value = TEXT-018 ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+    ENDTRY.
+
+    " Summation
+    lo_aggrs = lo_alv->get_aggregations( ).
+    TRY.
+        lo_aggrs->add_aggregation(
+          EXPORTING
+            columnname  = 'CUST_QTY'
+            aggregation = if_salv_c_aggregation=>total
+        ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+      CATCH cx_salv_existing ##NO_HANDLER.
+      CATCH cx_salv_data_error ##NO_HANDLER.
+    ENDTRY.
+
+    " Grouping
+    lo_sort = lo_alv->get_sorts( ).
+    TRY.
+        lo_sort->add_sort(
+          EXPORTING
+            columnname = 'NLPLA'
+            subtotal   = if_salv_c_bool_sap=>true
+          RECEIVING
+            value      = lo_sort_column
+        ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+      CATCH cx_salv_existing ##NO_HANDLER.
+      CATCH cx_salv_data_error ##NO_HANDLER.
+    ENDTRY.
+
+    TRY.
+        lo_sort->add_sort(
+          EXPORTING
+            columnname = 'BUDAT_MKPF'
+            subtotal   = if_salv_c_bool_sap=>true
+          RECEIVING
+            value      = lo_sort_column
+        ).
+      CATCH cx_salv_not_found ##NO_HANDLER.
+      CATCH cx_salv_existing ##NO_HANDLER.
+      CATCH cx_salv_data_error ##NO_HANDLER.
+    ENDTRY.
+
+    " Prepare Header
+    CREATE OBJECT lo_grid_layout.
+    " Title
+    IF p_basic = abap_true.
+      lo_grid_layout->create_header_information(
+        EXPORTING
+          row     = 1
+          column  = 4
+          text    = TEXT-019 ).
+    ELSE.
+      lo_grid_layout->create_header_information(
+        EXPORTING
+          row     = 1
+          column  = 4
+          text    = TEXT-020 ).
+    ENDIF.
+
+    " Addition header Text - Plant
+    lo_grid_layout->create_label(
+      EXPORTING
+       row         = 3
+       column      = 1
+       text        = TEXT-021 ).
+    lo_grid_layout->create_text(
+      EXPORTING
+        row         = 3
+        column      = 2
+        text        = p_werks ).
+
+    " Posting Date
+    lo_grid_layout->create_label(
+      EXPORTING
+        row         = 4
+        column      = 1
+        text        = TEXT-022 ).
+
+    CONCATENATE s_budat-low
+                'to'
+                s_budat-high
+           INTO DATA(lv_postdt)
+      SEPARATED BY space.
+
+    lo_grid_layout->create_text(
+      EXPORTING
+        row         = 4
+        column      = 2
+        text        = lv_postdt ).
+
+    " System Date
+    lo_grid_layout->create_label(
+      EXPORTING
+        row         = 5
+        column      = 1
+        text        = TEXT-023 ).
+
+    lo_grid_layout->create_text(
+      EXPORTING
+        row         = 5
+        column      = 2
+        text        = sy-datum ).
+
+    lo_grid_layout->create_label(
+      EXPORTING
+        row         = 6
+        column      = 1
+        text        = TEXT-024 ).
+
+    lo_grid_layout->create_text(
+      EXPORTING
+        row         = 6
+        column      = 2
+        text        = sy-uzeit ).
+
+    lo_alv->set_top_of_list( value = lo_grid_layout ).
+
+    lo_alv->display( ).
+  ENDMETHOD.
+
+
+  METHOD get_characteristics.
+
+    IF it_aufnr IS NOT INITIAL.
+      SELECT ordid,
+             ordtype,
+             ordno
+        FROM /sapapo/ordkey
+        INTO TABLE @DATA(lt_order_id)
+         FOR ALL ENTRIES IN @it_aufnr
+       WHERE ordno       = @it_aufnr-aufnr
+         AND input_fixed = @abap_true.
+
+      IF sy-subrc = 0.
+
+        SORT lt_order_id[] ASCENDING BY ordid.
+        DELETE ADJACENT DUPLICATES FROM lt_order_id[] COMPARING ordid.
+
+        DATA(lv_simsession) = VALUE /sapapo/om_simsession( ).
+
+        " Create new simulation session
+        CALL FUNCTION '/SAPAPO/RRP_SIMSESSION_CREATE'
+          EXPORTING
+            iv_simid       = '000'
+            iv_change_mode = ''
+            iv_cif_mode    = ''
+          IMPORTING
+            ev_simsession  = lv_simsession.
+
+        DATA(ls_gen_params) = VALUE /sapapo/om_gen_params( simversion = '000' ).
+        DATA(lt_orders)     = VALUE /sapapo/om_ordid_tab( FOR ls_ord_id IN lt_order_id ( ls_ord_id-ordid ) ).
+
+        " Characteristics values
+        CALL FUNCTION '/SAPAPO/OM_ORDER_GET_DATA' ##FM_SUBRC_OK
+          EXPORTING
+            is_gen_params          = ls_gen_params
+            iv_simsession          = lv_simsession
+            it_order               = lt_orders
+          IMPORTING
+            et_charact_val_outnode = et_charact_val_acts
+          EXCEPTIONS
+            lc_connect_failed      = 1
+            lc_com_error           = 2
+            lc_appl_error          = 3
+            OTHERS                 = 4.
+        IF sy-subrc <> 0.
+
+        ENDIF.
+        et_ordkey[]            = lt_order_id[].
+      ENDIF.
+    ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+
+ZFTP_R_CELLPROD_TOP
+*&---------------------------------------------------------------------*
+*& Include          ZFTP_R_CELLPROD_TOP
+*&---------------------------------------------------------------------*
+*& Title        : Global declarations for Cell Production
+*& Item Ref     : RTR-R-143
+*& Date         : 02/27/2025
+*& Author       : Gizala Kanuga / GKANUGA
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 03/03/2025   GKANUGA      DS4K904368   Initial Creation             *
+*&---------------------------------------------------------------------*
+
+TYPES: BEGIN OF ty_aufnr,
+         aufnr TYPE aufnr,
+       END OF ty_aufnr,
+       tty_aufnr TYPE STANDARD TABLE OF ty_aufnr,
+
+       BEGIN OF ty_ordkey,
+         ordid   TYPE	/sapapo/om_orderuid,
+         ordtype TYPE /sapapo/om_order_type,
+         ordno   TYPE /sapapo/om_ordno,
+       END OF ty_ordkey,
+       tty_ordkey TYPE STANDARD TABLE OF ty_ordkey,
+
+       BEGIN OF ty_output,
+*         lgort        TYPE mseg-lgort,
+         nlpla              TYPE /scwm/ordim_c-nlpla,
+         budat_mkpf         TYPE mseg-budat_mkpf,
+         mblnr              TYPE mseg-mblnr,
+         werks              TYPE mseg-werks,
+         product_type       TYPE char1,
+         dauat              TYPE afpo-dauat,
+         wgbez              TYPE t023t-wgbez,
+         matnr              TYPE matnr,
+         kdauf              TYPE kdauf,
+         kdpos              TYPE kdpos,
+         aufnr              TYPE aufnr,
+
+         hand               TYPE char8,
+         shaft_material     TYPE char8,
+         shaft_length       TYPE char8,
+         shaft_manufacturer TYPE char8,
+         shaft_flex         TYPE char8,
+         grip_size          TYPE char8,
+         grip_manufacturer  TYPE char8,
+         grip_model         TYPE char8,
+         putter_style       TYPE char8,
+         loft               TYPE char8,
+         lie                TYPE char8,
+
+         cust_qty(8)        TYPE p DECIMALS 3,
+       END OF ty_output,
+       tty_output TYPE STANDARD TABLE OF ty_output.
+
+CLASS lcl_cellprod DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS : get_data,
+      display_data        IMPORTING it_output           TYPE tty_output,
+      get_characteristics IMPORTING it_aufnr            TYPE tty_aufnr
+                          EXPORTING et_charact_val_acts TYPE /sapapo/om_charact_val_tab
+                                    et_ordkey           TYPE tty_ordkey.
+
+ENDCLASS.
