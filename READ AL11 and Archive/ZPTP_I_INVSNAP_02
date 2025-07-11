@@ -1,0 +1,479 @@
+*&---------------------------------------------------------------------*
+*& Report ZPTP_I_INVSNAP_02                                            *
+*&---------------------------------------------------------------------*
+*& Title        :  Update WMS & SAP Inventory                          *
+*&                 invetory data                                       *
+*& Item Ref     :  PTP-I-162                                           *
+*& Date         :  11/12/2024                                          *
+*& Author       :  Ahmad Aizat/AALI/JPADAKAN                           *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& 11/12/2024   AALI/JPADAKAN     DS4K902135   Initial Development     *
+*&---------------------------------------------------------------------*
+CLASS lcl_invsnap IMPLEMENTATION.
+  METHOD main.
+
+    get_wms_data( ).
+
+    IF gv_subrc EQ 1.
+      MESSAGE 'Issue with File data format, Please correct it'(s06) TYPE 'S' DISPLAY LIKE 'E'.  ##NEEDED.
+      EXIT.
+    ENDIF.
+** Check if the data exist from the files
+    IF gt_wms IS INITIAL.
+      MESSAGE 'No data found'(s04) TYPE 'S' DISPLAY LIKE 'E'.  ##NEEDED.
+      EXIT.
+    ENDIF.
+** check if the program to run for archive the files and delete it from the source folder
+    IF p_delarc EQ abap_false.
+      get_sap_data( ).
+      update_custom_table( ).
+      arch_delete_app_files( ).
+    ELSE.
+      gv_success  = abap_true.
+      arch_delete_app_files( ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD open_file_dialog.
+    CALL FUNCTION '/SAPDMC/LSM_F4_SERVER_FILE'
+      EXPORTING
+        directory        = cv_path
+      IMPORTING
+        serverfile       = cv_path
+      EXCEPTIONS
+        canceled_by_user = 1
+        OTHERS           = 2.
+    IF sy-subrc <> 0 AND sy-subrc <> 1.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+  ENDMETHOD.
+  METHOD get_wms_data.
+    DATA: lv_filename TYPE localfile .
+    DATA lv_dir_name TYPE eps2filnam.
+    DATA: ls_csv TYPE string.
+    DATA:lt_string TYPE TABLE OF string.
+    DATA: ls_wms TYPE gty_wms.
+
+
+    FIELD-SYMBOLS: <lf_wms> TYPE any.
+    CLEAR: gv_success,gv_subrc.
+    REFRESH: gt_file.
+
+    lv_dir_name = p_inb.
+
+    CALL FUNCTION 'EPS2_GET_DIRECTORY_LISTING'
+      EXPORTING
+        iv_dir_name            = lv_dir_name
+        file_mask              = 'WMS_INV_SNAPSHOT*'
+      TABLES
+        dir_list               = gt_file
+      EXCEPTIONS
+        invalid_eps_subdir     = 1
+        sapgparam_failed       = 2
+        build_directory_failed = 3
+        no_authorization       = 4
+        read_directory_failed  = 5
+        too_many_read_errors   = 6
+        empty_directory_list   = 7
+        OTHERS                 = 8.
+    .
+    IF sy-subrc <> 0 AND gt_file IS INITIAL.
+      MESSAGE 'No files found'(s05) TYPE 'S' DISPLAY LIKE 'E'.  ##NEEDED.
+      EXIT.
+    ENDIF.
+
+    CATCH SYSTEM-EXCEPTIONS conversion_errors = 1.
+** Read all the data from AL11 file
+      LOOP AT gt_file INTO DATA(ls_file).
+
+        lv_filename = lv_dir_name  && '/' && ls_file-name.
+
+        OPEN DATASET lv_filename FOR INPUT IN TEXT MODE ENCODING NON-UNICODE.
+        IF sy-subrc = 0.
+
+          DO.
+            READ DATASET lv_filename INTO ls_csv.
+            IF sy-subrc <> 0.
+              EXIT.
+            ENDIF.
+            IF sy-index = 1.
+              CONTINUE.
+            ENDIF.
+            CLEAR lt_string.
+            SPLIT ls_csv AT ',' INTO TABLE lt_string. "assuming '|' as separator
+            LOOP AT lt_string ASSIGNING FIELD-SYMBOL(<lf_string>).
+              ASSIGN COMPONENT sy-tabix OF STRUCTURE ls_wms TO <lf_wms>.
+              IF sy-subrc = 0.
+                <lf_wms>  = <lf_string>   .
+              ENDIF.
+              AT LAST.
+                ls_wms-matnr = CONV matnr18( |{ ls_wms-matnr ALPHA = IN }| ).
+                ASSIGN gt_wms[ matnr = ls_wms-matnr  warehouse = ls_wms-warehouse stock_type = ls_wms-stock_type lgort = ls_wms-lgort ] TO FIELD-SYMBOL(<lf_wms_exist>).
+                IF sy-subrc = 0 .
+                  <lf_wms_exist>-qty +=  ls_wms-qty.
+                ELSE.
+                  ls_wms-matnr = CONV matnr18( |{ ls_wms-matnr ALPHA = IN }| ).
+                  APPEND ls_wms TO gt_wms.
+                ENDIF.
+                UNASSIGN:<lf_wms_exist>.
+              ENDAT.
+            ENDLOOP.
+          ENDDO.
+        ENDIF.
+        CLOSE DATASET lv_filename.
+      ENDLOOP.
+    ENDCATCH.
+    IF sy-subrc EQ 1.
+      gv_subrc = 1.
+    ENDIF.
+  ENDMETHOD.
+  METHOD get_sap_data.
+    DATA: lr_werks   TYPE RANGE OF werks_d,
+          lr_bwart_h TYPE RANGE OF bwart,
+          lr_bwart_s TYPE RANGE OF bwart,
+          lr_bwart   TYPE RANGE OF bwart,
+          lr_lgort   TYPE RANGE OF lgort_d,
+          ls_mseg    TYPE gty_mseg.
+
+    TYPES: BEGIN OF lty_wms_mard,
+             matnr TYPE matnr,
+             werks TYPE werks_d,
+           END OF lty_wms_mard.
+
+    DATA: lt_wms_mard TYPE TABLE OF lty_wms_mard.
+
+
+** Parameter table for the warehouse
+    DATA(ls_status) = zcl_ca_enh_util=>get_instance( )->check_enh( iv_ricef_id = gc_ricef_id         " RICEF ID Object
+                                                             iv_subarea  = gc_subarea ).
+
+    gt_param_table[] = ls_status-param_list[].
+
+** Plant data from Warehouse
+    LOOP AT gt_param_table INTO DATA(ls_param_table)..
+      CASE ls_param_table-field_name.
+** Warehouse
+        WHEN gc_fn_warehouse.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_param_table-value_low ) TO lr_werks.
+** movement type 103 and 106
+        WHEN gc_fn_bwart_h.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_param_table-value_low ) TO lr_bwart_h.
+        WHEN gc_fn_bwart_s.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_param_table-value_low ) TO lr_bwart_s.
+* Storage location
+        WHEN gc_fn_sloc.
+          APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_param_table-value_low ) TO lr_lgort.
+      ENDCASE.
+    ENDLOOP.
+
+    APPEND LINES OF lr_bwart_h TO lr_bwart.
+    APPEND LINES OF lr_bwart_s TO lr_bwart.
+
+** Get MARD data baed on plant
+    IF NOT lr_werks[] IS INITIAL.
+      SELECT matnr, werks, lgort, SUM( labst ), SUM( insme ), SUM( speme ) INTO TABLE @gt_mard
+        FROM mard WHERE werks IN @lr_werks
+                   AND lgort IN @lr_lgort
+        GROUP BY matnr, werks, lgort.
+    ENDIF.
+
+** All the materials and plants from WMS file
+    lt_wms_mard = VALUE #( FOR ls_wms_temp IN gt_wms
+                           ( matnr = ls_wms_temp-matnr
+                             werks = ls_wms_temp-warehouse ) ).
+** Get Matnr and plant from MARD
+    lt_wms_mard = VALUE #( BASE lt_wms_mard FOR ls_mard_temp IN gt_mard
+                           ( matnr = ls_mard_temp-matnr
+                             werks = ls_mard_temp-werks ) ).
+
+    SORT lt_wms_mard BY matnr werks.
+    DELETE ADJACENT DUPLICATES FROM lt_wms_mard COMPARING matnr werks.
+
+**  Get EAN11
+    IF NOT  lt_wms_mard  IS INITIAL .
+      SELECT DISTINCT matnr, ean11 FROM mara INTO TABLE @gt_mara
+            FOR ALL ENTRIES IN @lt_wms_mard
+            WHERE matnr = @lt_wms_mard-matnr.
+    ENDIF.
+
+** Get MSEG data
+    IF NOT lt_wms_mard IS INITIAL.
+      SELECT mblnr, mjahr, zeile, bwart, matnr, werks, menge, ebeln, ebelp
+                INTO TABLE @DATA(lt_mseg)
+                FROM mseg
+           FOR ALL ENTRIES IN @lt_wms_mard
+             WHERE bwart IN @lr_bwart
+             AND   matnr  EQ @lt_wms_mard-matnr
+             AND   werks EQ @lt_wms_mard-werks.
+    ENDIF.
+
+    DATA(lt_mseg_po) = lt_mseg.
+    SORT lt_mseg_po BY ebeln ebelp.
+** Get Storage location from PO
+    IF NOT lt_mseg_po IS INITIAL.
+      SELECT ebeln, ebelp, lgort  INTO TABLE  @DATA(lt_ekpo)
+                  FROM ekpo
+                FOR ALL ENTRIES IN @lt_mseg_po
+               WHERE ebeln = @lt_mseg_po-ebeln
+                AND ebelp = @lt_mseg_po-ebelp.
+    ENDIF.
+
+** Construct the data based on Material , plant and storage location for later use for PUT logic
+    LOOP AT lt_mseg INTO DATA(ls_mseg_local).
+      CLEAR ls_mseg.
+      ls_mseg-matnr  = ls_mseg_local-matnr.
+      ls_mseg-werks = ls_mseg_local-werks.
+
+      ASSIGN lt_ekpo[ ebeln = ls_mseg_local-ebeln ebelp = ls_mseg_local-ebelp ]-lgort TO FIELD-SYMBOL(<lf_po_lgort>).
+      IF sy-subrc = 0.
+        ls_mseg-lgort = <lf_po_lgort>..
+        UNASSIGN <lf_po_lgort>.
+      ENDIF.
+      IF ls_mseg_local-bwart IN lr_bwart_h.
+        ls_mseg-menge_h =  ls_mseg_local-menge.
+      ELSEIF  ls_mseg_local-bwart IN lr_bwart_s.
+        ls_mseg-menge_s = ls_mseg_local-menge.
+      ELSE.
+      ENDIF.
+      ASSIGN gt_mseg[ matnr = ls_mseg_local-matnr werks = ls_mseg_local-werks lgort = ls_mseg-lgort ] TO FIELD-SYMBOL(<lf_mseg_exist>).
+      IF sy-subrc = 0 .
+        <lf_mseg_exist>-menge_h =  <lf_mseg_exist>-menge_h + ls_mseg-menge_h.
+        <lf_mseg_exist>-menge_s =   <lf_mseg_exist>-menge_s + ls_mseg-menge_s.
+      ELSE.
+        APPEND ls_mseg TO gt_mseg.
+      ENDIF.
+      UNASSIGN:<lf_mseg_exist>.
+    ENDLOOP.
+
+  ENDMETHOD.
+  METHOD update_custom_table.
+    DATA: lt_invsnap TYPE TABLE OF zptp_t_invsnap,
+          ls_invsnap TYPE zptp_t_invsnap,
+          lv_msg     TYPE bapi_msg.
+
+    CONSTANTS: lc_stp_avl TYPE char3 VALUE 'AVL',
+               lc_stp_put TYPE char3 VALUE 'PUT',
+               lc_stp_hld TYPE char3 VALUE 'HLD',
+               lc_stp_rej TYPE char3 VALUE 'REJ'.
+
+    DATA(lt_wms) = gt_wms.
+    SORT lt_wms BY matnr warehouse lgort.
+    DELETE ADJACENT DUPLICATES FROM lt_wms COMPARING matnr warehouse lgort.
+
+** Fill the data from WMS file ino intrenal tbale LT_INVSNAP
+    LOOP AT lt_wms INTO DATA(ls_wms).
+      CLEAR ls_invsnap.
+
+      ASSIGN gt_mara[ matnr = ls_wms-matnr  ] TO FIELD-SYMBOL(<lf_wms_mara>).
+      IF sy-subrc = 0.
+        ls_invsnap-ean_article = <lf_wms_mara>-ean11.
+        UNASSIGN <lf_wms_mara>.
+      ELSE.
+        CONTINUE.
+      ENDIF.
+
+      ls_invsnap-report_date = sy-datum.
+      ls_invsnap-matnr       = ls_wms-matnr.
+      ls_invsnap-werks       =  ls_wms-warehouse.
+      ls_invsnap-lgort       = ls_wms-lgort.
+
+
+      ASSIGN gt_wms[ matnr =  ls_invsnap-matnr   warehouse = ls_wms-warehouse stock_type = lc_stp_avl  lgort = ls_wms-lgort ]-qty TO FIELD-SYMBOL(<lf_qty_wms>).
+      IF sy-subrc = 0.
+        ls_invsnap-unr_wms_qty = <lf_qty_wms>.
+        UNASSIGN <lf_qty_wms>.
+      ENDIF.
+
+      ASSIGN gt_wms[ matnr = ls_invsnap-matnr    warehouse = ls_wms-warehouse stock_type = lc_stp_hld lgort = ls_wms-lgort ]-qty TO <lf_qty_wms>.
+      IF sy-subrc = 0.
+        ls_invsnap-qi_wms_qty = <lf_qty_wms>.
+        UNASSIGN <lf_qty_wms>.
+      ENDIF.
+
+      ASSIGN gt_wms[ matnr = ls_invsnap-matnr   warehouse = ls_wms-warehouse stock_type = lc_stp_rej lgort = ls_wms-lgort ]-qty TO <lf_qty_wms>.
+      IF sy-subrc = 0.
+        ls_invsnap-blk_wms_qty  = <lf_qty_wms>.
+        UNASSIGN <lf_qty_wms>.
+      ENDIF.
+
+      ASSIGN gt_wms[ matnr = ls_invsnap-matnr   warehouse = ls_wms-warehouse stock_type = lc_stp_put  lgort = ls_wms-lgort ]-qty TO <lf_qty_wms>.
+      IF sy-subrc = 0.
+        ls_invsnap-grblk_wms_qty  = <lf_qty_wms>.
+        UNASSIGN <lf_qty_wms>.
+      ENDIF.
+
+      ASSIGN gt_mseg[ matnr = ls_invsnap-matnr   werks = ls_wms-warehouse lgort = ls_wms-lgort ] TO FIELD-SYMBOL(<lf_mseg_exist>).
+      IF sy-subrc = 0 .
+        ls_invsnap-grblk_sap_qty =  <lf_mseg_exist>-menge_s - <lf_mseg_exist>-menge_h. "GR blocked SAP qunatity
+      ENDIF.
+      UNASSIGN:<lf_mseg_exist>.
+
+
+      ls_invsnap-unr_diff_qty = ls_invsnap-unr_wms_qty -  ls_invsnap-unr_sap_qty. "Unrestricted diff qty.
+      ls_invsnap-qi_diff_qty  = ls_invsnap-qi_wms_qty - ls_invsnap-qi_sap_qty .   "QI diff qty.
+      ls_invsnap-blk_diff_qty =  ls_invsnap-blk_wms_qty - ls_invsnap-blk_sap_qty.  "Blocked diff qty.
+      ls_invsnap-grblk_diff_qty = ls_invsnap-grblk_wms_qty - ls_invsnap-grblk_sap_qty. "GR Blocked diff qty
+
+      ls_invsnap-tot_wms_qty  = ls_invsnap-unr_wms_qty + ls_invsnap-qi_wms_qty +   ls_invsnap-blk_wms_qty +  ls_invsnap-grblk_wms_qty.
+      ls_invsnap-tot_diff_qty =  ls_invsnap-tot_wms_qty - ls_invsnap-tot_sap_qty.
+
+      APPEND ls_invsnap TO lt_invsnap.
+    ENDLOOP.
+
+** Calculate the difference if the WMS entry exist in MARD
+* else consider MARD entry with respective fields in LT_INVSNAP table
+    LOOP AT gt_mard INTO DATA(ls_mard).
+      CLEAR ls_invsnap.
+*      IF line_exists( lt_invsnap[ matnr = ls_mard-matnr werks = ls_mard-werks lgort = ls_mard-lgort ] ).
+      ASSIGN lt_invsnap[ matnr = ls_mard-matnr  werks = ls_mard-werks lgort = ls_mard-lgort ] TO FIELD-SYMBOL(<lf_invsnap_exist>).
+      IF sy-subrc = 0 .
+** SAP qunatities
+        <lf_invsnap_exist>-unr_sap_qty  = ls_mard-labst. "** SAP Unrestricted qunatity
+        <lf_invsnap_exist>-qi_sap_qty   = ls_mard-insme. ":QI SAP qty.
+        <lf_invsnap_exist>-blk_sap_qty  = ls_mard-speme.   " Blocked SAP quantity
+
+        <lf_invsnap_exist>-unr_diff_qty = <lf_invsnap_exist>-unr_wms_qty -  <lf_invsnap_exist>-unr_sap_qty. "Unrestricted diff qty.
+        <lf_invsnap_exist>-qi_diff_qty  = <lf_invsnap_exist>-qi_wms_qty - <lf_invsnap_exist>-qi_sap_qty .   "QI diff qty.
+        <lf_invsnap_exist>-blk_diff_qty =  <lf_invsnap_exist>-blk_wms_qty - <lf_invsnap_exist>-blk_sap_qty.  "Blocked diff qty.
+        <lf_invsnap_exist>-grblk_diff_qty = <lf_invsnap_exist>-grblk_wms_qty - <lf_invsnap_exist>-grblk_sap_qty. "GR Blocked diff qty
+
+        <lf_invsnap_exist>-tot_sap_qty  = <lf_invsnap_exist>-unr_sap_qty +  <lf_invsnap_exist>-qi_sap_qty +  <lf_invsnap_exist>-blk_sap_qty  + <lf_invsnap_exist>-grblk_sap_qty  .
+        <lf_invsnap_exist>-tot_wms_qty  = <lf_invsnap_exist>-unr_wms_qty + <lf_invsnap_exist>-qi_wms_qty +   <lf_invsnap_exist>-blk_wms_qty + <lf_invsnap_exist>-grblk_wms_qty.
+        <lf_invsnap_exist>-tot_diff_qty =  <lf_invsnap_exist>-tot_wms_qty - <lf_invsnap_exist>-tot_sap_qty.
+      ELSE.
+        ls_invsnap-report_date  = sy-datum.
+        ls_invsnap-werks        = ls_mard-werks.
+        ls_invsnap-matnr        = ls_mard-matnr.
+        ls_invsnap-lgort =      ls_mard-lgort.
+        ls_invsnap-unr_sap_qty  = ls_mard-labst.  " SAP Unrestricted qunatity
+        ls_invsnap-qi_sap_qty   = ls_mard-insme.  ":QI SAP qty.
+        ls_invsnap-blk_sap_qty  = ls_mard-speme.  " Blocked SAP quantity
+
+        ASSIGN gt_mseg[ matnr = ls_invsnap-matnr  werks = ls_mard-werks lgort = ls_mard-lgort ] TO <lf_mseg_exist>.
+        IF sy-subrc = 0 .
+          ls_invsnap-grblk_sap_qty =  <lf_mseg_exist>-menge_s - <lf_mseg_exist>-menge_h. " GR Blocked SAP quantity
+        ENDIF.
+        UNASSIGN:<lf_mseg_exist>.
+
+        ASSIGN gt_mara[ matnr = ls_mard-matnr  ]-ean11 TO FIELD-SYMBOL(<lf_ean11>).
+        IF sy-subrc = 0.
+          ls_invsnap-ean_article = <lf_ean11>.
+          UNASSIGN <lf_ean11>.
+        ENDIF.
+
+        ls_invsnap-unr_diff_qty = ls_invsnap-unr_wms_qty -  ls_invsnap-unr_sap_qty. "Unrestricted diff qty.
+        ls_invsnap-qi_diff_qty  = ls_invsnap-qi_wms_qty - ls_invsnap-qi_sap_qty .   "QI diff qty.
+        ls_invsnap-blk_diff_qty =  ls_invsnap-blk_wms_qty - ls_invsnap-blk_sap_qty.  "Blocked diff qty.
+        ls_invsnap-grblk_diff_qty = ls_invsnap-grblk_wms_qty - ls_invsnap-grblk_sap_qty. "GR Blocked diff qty
+
+        ls_invsnap-tot_sap_qty  = ls_invsnap-unr_sap_qty +  ls_invsnap-qi_sap_qty +  ls_invsnap-blk_sap_qty +  ls_invsnap-grblk_sap_qty.
+        ls_invsnap-tot_wms_qty  = ls_invsnap-unr_wms_qty + ls_invsnap-qi_wms_qty +   ls_invsnap-blk_wms_qty +  ls_invsnap-grblk_wms_qty.
+        ls_invsnap-tot_diff_qty =  ls_invsnap-tot_wms_qty - ls_invsnap-tot_sap_qty.
+
+        APPEND ls_invsnap TO lt_invsnap.
+      ENDIF.
+      UNASSIGN:<lf_invsnap_exist>.
+
+
+      CLEAR: ls_invsnap.
+    ENDLOOP.
+
+** Delete the Materila if the both total SAP and WMS stocks are zero
+    DELETE lt_invsnap WHERE tot_sap_qty EQ '0.00' AND tot_wms_qty EQ '0.00'.
+** Get all the entries for the date, MATNR and WERKS to if entry already exist for the same key
+    CHECK lt_invsnap IS NOT INITIAL.
+    SELECT report_date, werks, matnr, lgort FROM zptp_t_invsnap INTO TABLE @DATA(lt_invsnap_db)
+      FOR ALL ENTRIES IN @lt_invsnap
+      WHERE report_date = @lt_invsnap-report_date
+            AND  werks  = @lt_invsnap-werks
+            AND lgort = @lt_invsnap-lgort
+            AND  matnr  = @lt_invsnap-matnr.
+
+** Delete the LT_INVSNAP table where the entry already exist in custom table  zptp_t_invsnap
+    LOOP AT lt_invsnap_db INTO  DATA(ls_invsnap_db).
+      DELETE lt_invsnap WHERE report_date = ls_invsnap_db-report_date
+                               AND werks = ls_invsnap_db-werks
+                               AND lgort = ls_invsnap_db-lgort
+                             AND matnr = ls_invsnap_db-matnr.
+    ENDLOOP.
+
+    IF NOT lt_invsnap IS INITIAL.
+      INSERT zptp_t_invsnap FROM TABLE lt_invsnap.
+      IF sy-subrc = 0.
+        gv_success = abap_true.
+        lv_msg = |{ TEXT-s01 }| & | | & |{ gc_invsnap }|.
+        WRITE: / lv_msg.
+      ENDIF.
+    ELSE.
+      gv_success = abap_true.
+      lv_msg = |{ TEXT-s03 }| & | | & |{ gc_invsnap }|.
+      WRITE: / lv_msg.
+    ENDIF.
+
+    DATA(lv_del_date) = sy-datum - 7.
+    DELETE FROM zptp_t_invsnap WHERE report_date < lv_del_date.
+    IF sy-subrc = 0.
+      lv_msg = |{ TEXT-s02 }| & | | & |{ gc_invsnap }|.
+      WRITE: / lv_msg.
+    ELSE.
+      lv_msg = |{ TEXT-s07 }| & | | & |{ gc_invsnap }|.
+      WRITE: / lv_msg.
+    ENDIF.
+  ENDMETHOD.
+  METHOD arch_delete_app_files.
+    DATA:
+     lv_msg    TYPE bapi_msg.
+    DATA: lv_oldfile      TYPE localfile,
+          lv_newfile      TYPE localfile,
+          lv_newline(240) TYPE c.
+
+** If the data is inserted in custom table or rdio button to archive and delete the files
+    IF gv_success EQ abap_true.
+      LOOP AT gt_file INTO DATA(ls_file).
+
+        lv_oldfile = p_inb && '/' && ls_file-name.
+        lv_newfile = p_arch && '/' && ls_file-name.
+
+        OPEN DATASET lv_oldfile FOR INPUT IN TEXT MODE ENCODING DEFAULT.
+        IF sy-subrc = 0.
+          OPEN DATASET lv_newfile FOR OUTPUT IN TEXT MODE ENCODING DEFAULT.
+          IF sy-subrc = 0.
+            DO.
+              READ DATASET lv_oldfile INTO lv_newline.
+              IF sy-subrc EQ 0.
+                TRANSFER lv_newline  TO lv_newfile.
+              ELSE.
+                IF lv_newline IS NOT INITIAL.
+                  TRANSFER lv_newline TO lv_newfile.
+                ENDIF.
+                EXIT.
+              ENDIF.
+            ENDDO.
+          ELSE.
+            MESSAGE e004(zptp_i_world_inv) WITH lv_newfile INTO lv_msg ##NEEDED.
+            WRITE:/ lv_msg.
+          ENDIF.
+          CLOSE DATASET lv_newfile.
+          CLOSE DATASET lv_oldfile.
+          DELETE DATASET  lv_oldfile.
+          IF sy-subrc <> 0.
+            lv_msg = |{ TEXT-s08 }| & | | & |{ lv_oldfile }|.
+            WRITE : / lv_msg.
+          ELSE.
+            lv_msg = |{ TEXT-s09 }| & | | & |{ lv_oldfile }|.
+            WRITE : / lv_msg.
+          ENDIF.
+        ELSE.
+          MESSAGE e004(zptp_i_world_inv) WITH lv_oldfile INTO lv_msg ##NEEDED.
+          WRITE:/ lv_msg.
+        ENDIF.
+
+      ENDLOOP.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
