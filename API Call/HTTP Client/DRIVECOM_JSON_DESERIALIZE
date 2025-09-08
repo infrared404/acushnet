@@ -1,0 +1,21 @@
+  METHOD drivecom_json_deserialize.
+    DATA:  ls_drvcom_resp TYPE gty_drvecom_resp.
+
+    "Parse JSON into ABAP structure
+    CLEAR  ls_drvcom_resp.
+    CALL METHOD /ui2/cl_json=>deserialize
+      EXPORTING
+        json = iv_json_string
+*       jsonx            =                  " JSON XString
+*       pretty_name      =                  " Pretty Print property names
+*       assoc_arrays     =   abap_true             " Deserialize associative array as tables with unique keys
+*       assoc_arrays_opt =                  " Optimize rendering of name value maps
+*       name_mappings    =                  " ABAP<->JSON Name Mapping Table
+*       conversion_exits =                  " Use DDIC conversion exits on deserialize of values
+*       hex_as_base64    =                  " Serialize hex values as base64
+      CHANGING
+        data = ls_drvcom_resp.
+
+    rt_features = ls_drvcom_resp-summary-features.
+    APPEND LINES OF ls_drvcom_resp-summary-previews[ 1 ]-features TO rt_features. "Coolect all the features
+  ENDMETHOD.
