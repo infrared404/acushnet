@@ -1,0 +1,85 @@
+METHOD get_updated_config_data.
+
+    CONSTANTS: lc_ricef_id TYPE ze_ricef_id     VALUE 'OTC-I-611',
+               lc_sub_area TYPE ze_sub_area VALUE 'DRIVECOMM_API'.
+    DATA lo_http_client TYPE REF TO if_http_client.
+    DATA lv_url         TYPE string.
+    DATA lv_apikey       TYPE string.
+    DATA lv_request_body  TYPE string.
+    DATA lv_response     TYPE string.
+    DATA lt_token       TYPE TABLE OF string.
+    DATA : ls_status TYPE zca_enh_s.
+
+
+    ls_status  =  zcl_ca_enh_util=>get_instance(   )->check_enh( iv_ricef_id = lc_ricef_id
+                                                                 iv_subarea  = lc_sub_area ).
+    IF ls_status-active EQ abap_true.
+      DATA(lv_apiendpoint) = VALUE #( ls_status-param_list[ field_name = sy-sysid ]-value_low OPTIONAL ).
+      DATA(lv_apiport) = VALUE #( ls_status-param_list[ field_name = sy-sysid ]-value_high OPTIONAL ).
+      lv_apikey = VALUE #( ls_status-param_list[ field_name = 'APIKEY' ]-value_low OPTIONAL ).
+    ENDIF.
+
+    lv_url = |https://{ lv_apiendpoint }.hana.ondemand.com:{ lv_apiport }/Drivecommerce_ArtworksUpdateRecipe|. " URL to be accessed
+    lv_url = condense( val  = lv_url
+                       from = ` `
+                       to   = `` ).
+    " Set API Key as query parameter
+    IF lv_apikey IS NOT INITIAL.
+      CONCATENATE lv_url '?apikey=' lv_apikey INTO lv_url.
+    ENDIF.
+    TRY.
+        " Create HTTP client instance
+        cl_http_client=>create_by_url( EXPORTING  url                = lv_url
+                                       IMPORTING  client             = lo_http_client
+                                       EXCEPTIONS argument_not_found = 1
+                                                  OTHERS             = 2 ).
+
+
+        IF sy-subrc <> 0.
+          RETURN.
+        ENDIF.
+
+        " Build request body JSON
+        CONCATENATE '{'
+                    '"recipeId": "' iv_recipeid '"'
+                    '}' INTO lv_request_body.
+
+
+        " Set HTTP request method to GET
+        lo_http_client->request->set_method( method = if_http_request=>co_request_method_post ).
+        " Set Content-Type header
+        lo_http_client->request->set_content_type( content_type = 'application/json' ).
+        " Set request body
+        lo_http_client->request->set_cdata( data = lv_request_body ).
+        lo_http_client->response->set_content_type( content_type = 'application/json' ).
+        " Send the HTTP request
+        ##SUBRC_OK
+        lo_http_client->send( EXCEPTIONS  OTHERS = 1 ).
+        IF sy-subrc <> 0.
+        ENDIF.
+        " Receive the HTTP response
+        ##SUBRC_OK
+        lo_http_client->receive( EXCEPTIONS http_communication_failure = 1 ##SUBRC_OK
+                                            http_invalid_state         = 2
+                                            http_processing_failed     = 3 ).
+
+        IF sy-subrc <> 0.
+        ENDIF.
+        lv_response = lo_http_client->response->get_cdata( ).
+
+        SPLIT lv_response AT '{' INTO TABLE lt_token.
+        " Get status information
+        lo_http_client->response->get_status(
+          IMPORTING
+            code   = DATA(lv_status)
+            reason = DATA(lv_resptext) ).
+
+        " Close HTTP connection
+        lo_http_client->close( ).
+
+        rt_result = lv_response.
+      CATCH cx_root INTO DATA(lx_error).
+        MESSAGE lx_error->get_text( ) TYPE 'E'.
+        RETURN.
+    ENDTRY.
+  ENDMETHOD.
