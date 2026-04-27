@@ -1,0 +1,1208 @@
+CLASS lhc_so DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR so RESULT result.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ so RESULT result.
+
+    METHODS lock FOR LOCK
+      IMPORTING keys FOR LOCK so.
+
+    METHODS createso FOR MODIFY
+      IMPORTING keys FOR ACTION so~createso RESULT result.
+
+    METHODS getso FOR MODIFY
+      IMPORTING keys FOR ACTION so~getso RESULT result.
+
+    METHODS changeso FOR MODIFY
+      IMPORTING keys FOR ACTION so~changeso RESULT result.
+
+    TYPES: BEGIN OF gty_bapi_response,
+             pid        TYPE abp_behv_pid,
+             salesorder TYPE bapisdhd,
+             msg        TYPE STANDARD TABLE OF bapiret2 WITH DEFAULT KEY,
+           END OF   gty_bapi_response,
+           gty_reported TYPE RESPONSE FOR REPORTED  zotc_r_slsord_crt_hdr,
+           gty_mapped   TYPE RESPONSE FOR MAPPED    zotc_r_slsord_crt_hdr,
+           gty_failed   TYPE RESPONSE FOR FAILED    zotc_r_slsord_crt_hdr.
+
+    CONSTANTS: gc_error TYPE bapiret2-type VALUE 'E'.
+
+    METHODS handle_bapi_return IMPORTING is_result   TYPE gty_bapi_response
+                               CHANGING  cs_reported TYPE gty_reported
+                                         cs_failed   TYPE gty_failed OPTIONAL.
+
+    METHODS new_msg_from_bapi IMPORTING is_message    TYPE bapiret2
+                              RETURNING VALUE(ro_msg) TYPE REF TO zcx_otc_simulateso_api.
+
+ENDCLASS.
+
+CLASS lhc_so IMPLEMENTATION.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD lock.
+  ENDMETHOD.
+
+  METHOD createso.
+
+    DATA: lt_input_headers  TYPE TABLE OF zotc_r_so_hdr,
+          ls_header         TYPE zotc_r_so_hdr,
+          lt_input_items    TYPE TABLE OF zotc_i_so_line,
+          lt_input_vc       TYPE TABLE OF zotc_i_so_vc,
+          ls_vc             TYPE zotc_i_so_vc,
+          lt_output_headers TYPE TABLE OF zotc_r_so_hdr,
+          lt_output_items   TYPE TABLE OF zotc_i_so_line,
+          lt_output_sched   TYPE TABLE OF zotc_i_so_schedline,
+          lt_output_pricing TYPE TABLE OF zotc_i_so_pricing,
+          lt_output_vc      TYPE TABLE OF zotc_i_so_vc,
+          lt_pricing_z      TYPE TABLE OF zotc_i_abs_sopricing_res,
+          ls_pricing_z      TYPE zotc_i_abs_sopricing_res,
+          lt_so_export      TYPE zotc_so_orders_fields_tt.
+
+    DATA: ls_hdr                TYPE bapisdhd1,
+          ls_status             TYPE bapisdhdst,
+          ls_hdrx               TYPE bapisdhd1x,
+          ls_hdr_out            TYPE bapisdhd,
+          ls_logic_switch       TYPE bapisdls,
+          lt_items              TYPE TABLE OF bapisditm,
+          lt_itemsx             TYPE TABLE OF bapisditmx,
+          lt_partner            TYPE TABLE OF bapiparnr,
+          lt_return             TYPE TABLE OF bapiret2,
+          lt_schdlines          TYPE TABLE OF bapischdl,
+          lt_schdlinesx         TYPE TABLE OF bapischdlx,
+          lt_sales_cfgs_ref     TYPE TABLE OF bapicucfg,
+          ls_sales_cfgs_ref     TYPE bapicucfg,
+          lt_sales_cfgs_inst    TYPE TABLE OF bapicuins,
+          ls_sales_cfgs_inst    TYPE bapicuins,
+          lt_sales_cfgs_part_of TYPE TABLE OF bapicuprt,
+          lt_sales_cfgs_value   TYPE TABLE OF bapicuval,
+          ls_sales_cfgs_value   TYPE bapicuval,
+          ls_item_ex            TYPE bapisdit,
+          lt_items_ex           TYPE TABLE OF bapisdit,
+          lt_schedule_ex        TYPE TABLE OF bapisdhedu,
+          lt_extensionex        TYPE TABLE OF bapiparex,
+          lt_conditions_ex      TYPE TABLE OF bapicond,
+          lt_conditions_in      TYPE TABLE OF bapicond,
+          lt_conditions_inx     TYPE TABLE OF bapicondx,
+          lt_business_ex        TYPE TABLE OF  bapisdbusi,
+          lv_vbeln              TYPE bapivbeln-vbeln,
+          ls_vbapkom            TYPE REF TO vbapkom,
+          ls_vbapkomx           TYPE REF TO vbapkomx,
+          lv_configid(6)        TYPE n,
+          lv_inst_id(8)         TYPE n,
+          lv_manualdeal1        TYPE zz1_salesdeal_mnl1,
+          lv_manualdeal2        TYPE zz1_salesdeal_mnl2.
+
+    DATA: ls_bapi_result TYPE gty_bapi_response.
+
+    DATA: lt_extensionin TYPE TABLE OF bapiparex,
+          ls_extensionin TYPE bapiparex,
+          ls_bape_vbap   TYPE bape_vbap,
+          ls_bape_vbak   TYPE bape_vbak,
+          ls_bape_vbkd   TYPE bape_vbkd,
+          ls_bape_vbakx  TYPE bape_vbakx,
+          ls_bape_vbapx  TYPE bape_vbapx.
+
+    DATA: ls_extensibility_fields_item TYPE REF TO bape_sdsalesdocitem,
+          ls_bape_sdsalesdocitem       TYPE bape_sdsalesdocitem.
+
+    CONSTANTS: lc_so_fields TYPE char8 VALUE 'SOFIELDS',
+               lc_incov     TYPE char5 VALUE 'INCOV'.
+
+    ls_hdr = VALUE #(
+                      doc_type       = keys[ 1 ]-%param-salesordertype
+                      sales_org      = keys[ 1 ]-%param-salesorganization
+                      distr_chan     = keys[ 1 ]-%param-distributionchannel
+                      division       = keys[ 1 ]-%param-organizationdivision
+                      purch_no_c     = keys[ 1 ]-%param-customerreference
+                      req_date_h     = keys[ 1 ]-%param-requireddeliverydate
+                      purch_date     = keys[ 1 ]-%param-customerrefdate
+                      doc_date       = COND #( WHEN keys[ 1 ]-%param-documentdate IS NOT INITIAL THEN keys[ 1 ]-%param-documentdate
+                                               ELSE sy-datum )
+                      pmnttrms       = keys[ 1 ]-%param-paymentterm
+                      dlv_block      = keys[ 1 ]-%param-deliveryblock
+                      ship_cond      = keys[ 1 ]-%param-shippingcondition
+                      ord_reason     = keys[ 1 ]-%param-orderreason
+                      incotermsv     = keys[ 1 ]-%param-incotermversion
+                      incoterms1     = keys[ 1 ]-%param-incoterm
+                      incoterms2l    = keys[ 1 ]-%param-incotermloc1
+                      incoterms3l    = keys[ 1 ]-%param-incotermloc2
+                       ).
+
+    ls_hdrx = VALUE #( doc_type      = 'X'
+                      sales_org      = 'X'
+                      distr_chan     = 'X'
+                      division       = 'X'
+                      purch_no_c     = 'X'
+                      req_date_h     = 'X'
+                      doc_date       = 'X'
+                      updateflag     = 'X'
+                      pmnttrms       = 'X'
+                      dlv_block      = 'X'
+                      ship_cond      = 'X'
+                      ord_reason     = 'X'
+                      incotermsv     = 'X'
+                      incoterms1     = 'X'
+                      incoterms2l    = 'X'
+                      incoterms3l    = 'X'
+                      purch_date     = 'X'
+                      ).
+
+    lt_items  = VALUE #( FOR ls_items IN keys[ 1 ]-%param-_to_item
+                         ( itm_number = ls_items-salesorderitem
+                           po_itm_no  = ls_items-salesorderitem
+                           material   = ls_items-product
+                           target_qty = ls_items-requiredquantity
+                           dlv_prio   = keys[ 1 ]-%param-deliverypriority
+                            ) ).
+
+    lt_itemsx  = VALUE #( FOR ls_items IN keys[ 1 ]-%param-_to_item
+                         ( itm_number = ls_items-salesorderitem
+                           po_itm_no = abap_true
+                           updateflag = abap_true
+                           material   = abap_true
+                           target_qty = abap_true
+                           dlv_prio   = abap_true
+                            ) ).
+
+    lt_items_ex  = VALUE #( FOR ls_items IN keys[ 1 ]-%param-_to_item
+                                     ( itm_number = ls_items-salesorderitem
+                                       material   = ls_items-product
+                                        ) ).
+    CREATE DATA ls_extensibility_fields_item.
+    CREATE DATA ls_vbapkom.
+    CREATE DATA ls_vbapkomx.
+
+    LOOP AT keys[ 1 ]-%param-_to_item INTO DATA(ls_itm).
+
+      ls_bape_vbap-posnr = ls_itm-salesorderitem.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = keys[ 1 ]-%param-manualsaledeal1
+        IMPORTING
+          output = lv_manualdeal1.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = keys[ 1 ]-%param-manualsaledeal2
+        IMPORTING
+          output = lv_manualdeal2.
+
+      ls_bape_vbap-zz1_salesdeal_mnl1_sdi = lv_manualdeal1.
+      ls_bape_vbap-zz1_salesdeal_mnl2_sdi = lv_manualdeal2.
+      ls_extensionin-structure = 'BAPE_VBAP'.
+      ls_extensionin-valuepart1 = ls_bape_vbap.
+
+      APPEND ls_extensionin TO lt_extensionin.
+
+      ls_bape_vbapx-posnr = ls_itm-salesorderitem.
+      ls_bape_vbapx-zz1_salesdeal_mnl1_sdi = abap_true.
+      ls_bape_vbapx-zz1_salesdeal_mnl2_sdi = abap_true.
+      ls_extensionin-structure = 'BAPE_VBAPX'.
+      ls_extensionin-valuepart1 = ls_bape_vbapx.
+
+      APPEND ls_extensionin TO lt_extensionin.
+      CLEAR: ls_extensionin, ls_itm.
+    ENDLOOP.
+
+    IF  keys[ 1 ]-%param-cancellationdate IS NOT INITIAL.
+      ls_bape_vbak-fsh_candate =  keys[ 1 ]-%param-cancellationdate.
+      ls_extensionin-structure = 'BAPE_VBAK'.
+      ls_extensionin-valuepart1 = ls_bape_vbak.
+      APPEND ls_extensionin TO lt_extensionin.
+
+      ls_bape_vbakx-fsh_candate = 'X'.
+      ls_extensionin-structure = 'BAPE_VBAKX'.
+      ls_extensionin-valuepart1 = ls_bape_vbakx.
+      APPEND ls_extensionin TO lt_extensionin.
+      CLEAR: ls_extensionin.
+    ENDIF.
+
+    IF  keys[ 1 ]-%param-deliverypriority IS NOT INITIAL.
+      ls_bape_vbak-zz1_lprioh_sdh =  keys[ 1 ]-%param-deliverypriority.
+      ls_extensionin-structure = 'BAPE_VBAK'.
+      ls_extensionin-valuepart1 = ls_bape_vbak.
+      APPEND ls_extensionin TO lt_extensionin.
+
+      ls_bape_vbakx-zz1_lprioh_sdh = 'X'.
+      ls_extensionin-structure = 'BAPE_VBAKX'.
+      ls_extensionin-valuepart1 = ls_bape_vbakx.
+      APPEND ls_extensionin TO lt_extensionin.
+      CLEAR: ls_extensionin.
+    ENDIF.
+
+    ls_bape_vbkd-deliverypriority = keys[ 1 ]-%param-deliverypriority.
+    ls_bape_vbkd-incotermsversion = keys[ 1 ]-%param-incotermversion.
+    ls_extensionin-structure = 'BAPE_VBKD'.
+    ls_extensionin-valuepart1 = ls_bape_vbkd.
+    APPEND ls_extensionin TO lt_extensionin.
+    CLEAR: ls_extensionin.
+
+    IF keys[ 1 ]-%param-shiptoparty IS NOT INITIAL.
+      DATA(lv_shiptoparty) = keys[ 1 ]-%param-shiptoparty.
+      SELECT SINGLE name1, name2, anred FROM kna1 WHERE kunnr = @lv_shiptoparty INTO @DATA(ls_shiptoparty).
+    ENDIF.
+    IF keys[ 1 ]-%param-soldtoparty IS NOT INITIAL.
+      DATA(lv_soldtoparty) = keys[ 1 ]-%param-shiptoparty.
+      SELECT SINGLE name1, name2, anred FROM kna1 WHERE kunnr = @lv_soldtoparty INTO @DATA(ls_soldtoparty).
+    ENDIF.
+    lt_partner  = VALUE #( ( partn_role = 'WE'
+                             partn_numb =  keys[ 1 ]-%param-shiptoparty
+                             name       =  ls_shiptoparty-name1
+                             name_2     =  ls_shiptoparty-name2
+                             title      =  ls_shiptoparty-anred
+                             street     =  keys[ 1 ]-%param-shiptostreet
+                             postl_code =  keys[ 1 ]-%param-shiptopostalcd
+                             city       =  keys[ 1 ]-%param-shiptocity
+                             country    =  keys[ 1 ]-%param-shiptocountry
+                             region     =  keys[ 1 ]-%param-shiptoregion )
+                           ( partn_role = 'AG'
+                             partn_numb =  keys[ 1 ]-%param-soldtoparty
+                             name       =  ls_soldtoparty-name1
+                             name_2     =  ls_soldtoparty-name2
+                             title      =  ls_soldtoparty-anred
+                             street     =  keys[ 1 ]-%param-soldtostreet
+                             postl_code =  keys[ 1 ]-%param-soldtopostalcd
+                             city       =  keys[ 1 ]-%param-soldtocity
+                             country    =  keys[ 1 ]-%param-soldtocountry
+                             region     =  keys[ 1 ]-%param-soldtoregion )  ) .
+
+    lt_schdlines = VALUE #( FOR ls_schd_to_item IN keys[ 1 ]-%param-_to_item
+                            ( itm_number = ls_schd_to_item-salesorderitem
+                              sched_line = '0001'
+                              req_date   = keys[ 1 ]-%param-requireddeliverydate
+                              req_qty    = ls_schd_to_item-requiredquantity     ) ).
+
+    lt_schdlinesx = VALUE #( FOR ls_schd_to_itemx IN keys[ 1 ]-%param-_to_item
+                            ( itm_number = ls_schd_to_itemx-salesorderitem
+                              sched_line = '0001'
+                              updateflag = 'X'
+                              req_date   = 'X'
+                              req_qty    = 'X'     ) ).
+
+    DELETE ADJACENT DUPLICATES FROM lt_schdlines.
+
+    CLEAR:lv_configid, lv_inst_id.
+    lv_configid                 = lv_configid + '000001' .
+    lv_inst_id                  = lv_inst_id  + '00000001' .
+    LOOP AT  keys[ 1 ]-%param-_to_item INTO DATA(ls_to_item).
+      LOOP AT  ls_to_item-_to_characteristic INTO DATA(ls_charac).
+        ls_sales_cfgs_ref-posex     = ls_to_item-salesorderitem.
+        ls_sales_cfgs_ref-config_id = lv_configid.
+        ls_sales_cfgs_ref-root_id   = lv_inst_id .
+        ls_sales_cfgs_ref-cfginfo   =  'CFGINFO'.
+        AT END OF salesorderitem.
+          APPEND ls_sales_cfgs_ref TO lt_sales_cfgs_ref.
+          CLEAR:ls_sales_cfgs_ref.
+          lv_configid                 = lv_configid + '000001' .
+          lv_inst_id                  = lv_inst_id  + '00000001' .
+        ENDAT.
+
+      ENDLOOP.
+      CLEAR:ls_to_item.
+    ENDLOOP.
+
+    lt_sales_cfgs_inst = VALUE #( FOR ls_sales_cfgs_rf IN lt_sales_cfgs_ref
+                                  ( config_id = ls_sales_cfgs_rf-config_id
+                                    inst_id   = ls_sales_cfgs_rf-root_id  ) ) .
+
+    CLEAR: lv_configid, lv_inst_id.
+    lv_configid                   = lv_configid + '000001' .
+    lv_inst_id                    = lv_inst_id  + '00000001' .
+    LOOP AT keys[ 1 ]-%param-_to_item INTO ls_to_item.
+      LOOP AT  ls_to_item-_to_characteristic INTO ls_charac.
+        ls_sales_cfgs_value-config_id  = lv_configid. .
+        ls_sales_cfgs_value-inst_id    = lv_inst_id .
+        ls_sales_cfgs_value-charc      = ls_charac-characteristic.
+        ls_sales_cfgs_value-value_long = ls_charac-charcvalue. " Changed from value to value_long on 09.01.2026
+        AT END OF salesorderitem.
+          lv_configid                  = lv_configid + '000001' .
+          lv_inst_id                   = lv_inst_id  + '00000001' .
+        ENDAT.
+        APPEND ls_sales_cfgs_value TO lt_sales_cfgs_value.
+        CLEAR: ls_sales_cfgs_value.
+      ENDLOOP.
+      CLEAR: ls_to_item.
+    ENDLOOP.
+
+
+    "Add leading 0s to materials
+    LOOP AT lt_items ASSIGNING FIELD-SYMBOL(<fs_item>).
+      CALL FUNCTION 'CONVERSION_EXIT_MATN1_INPUT'
+        EXPORTING
+          input  = <fs_item>-material
+        IMPORTING
+          output = <fs_item>-material.
+    ENDLOOP.
+
+    TRY.
+        CALL FUNCTION 'ZFM_OTC_SALESDOCUMENT_CREATE' DESTINATION 'NONE'
+          EXPORTING
+            sales_header_in       = ls_hdr
+            sales_header_inx      = ls_hdrx
+            testrun               = abap_false
+            status_buffer_refresh = abap_true
+            i_refresh_v45i        = abap_true
+            i_check_ag            = abap_true
+            i_testrun_extended    = abap_false
+          IMPORTING
+            salesdocument_ex      = lv_vbeln
+            sales_header_out      = ls_hdr_out
+            sales_header_status   = ls_status
+          TABLES
+            return                = lt_return
+            sales_items_in        = lt_items
+            sales_items_inx       = lt_itemsx
+            sales_partners        = lt_partner
+            sales_schedules_in    = lt_schdlines
+            sales_schedules_inx   = lt_schdlinesx
+            sales_conditions_in   = lt_conditions_in
+            sales_conditions_inx  = lt_conditions_inx
+            sales_cfgs_ref        = lt_sales_cfgs_ref
+            sales_cfgs_inst       = lt_sales_cfgs_inst
+            sales_cfgs_part_of    = lt_sales_cfgs_part_of
+            sales_cfgs_value      = lt_sales_cfgs_value
+            extensionin           = lt_extensionin
+            items_ex              = lt_items_ex
+            schedule_ex           = lt_schedule_ex
+            business_ex           = lt_business_ex
+            extensionex           = lt_extensionex
+            conditions_ex         = lt_conditions_ex.
+
+      CATCH zcx_otc_simulateso_api INTO DATA(lo_cx_messages).
+
+        APPEND VALUE #(   %msg = lo_cx_messages ) TO reported-so.
+
+
+    ENDTRY.
+
+    IF lv_vbeln IS NOT INITIAL.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT' DESTINATION 'NONE'
+        EXPORTING
+          wait = 'X'.
+
+      SELECT SINGLE vbeln, cmgst FROM vbak INTO @DATA(ls_vbak) WHERE vbeln = @lv_vbeln.
+
+      IF ( ls_vbak-cmgst = 'B' OR ls_vbak-cmgst = 'C' ).
+        APPEND VALUE #( type    = 'W'
+                        id      = 'ZOTC'
+                        number  = '044'
+                        message = 'Order on credit check' ) TO lt_return.
+      ENDIF.
+
+      IF line_exists( lt_schedule_ex[ req_dlv_bl = 'PF' ] ).
+        APPEND VALUE #( type    = 'W'
+                        id      = 'ZOTC'
+                        number  = '043'
+                        message = 'Order on profanity block' ) TO lt_return.
+      ENDIF.
+
+    ENDIF.
+
+    handle_bapi_return( EXPORTING is_result = VALUE #( msg = lt_return )
+                    CHANGING  cs_reported = reported
+                              cs_failed   = failed   ).
+
+
+
+    "Remove leading 0s from materials
+    LOOP AT lt_items ASSIGNING <fs_item>.
+      CALL FUNCTION 'CONVERSION_EXIT_MATN1_OUTPUT'
+        EXPORTING
+          input  = <fs_item>-material
+        IMPORTING
+          output = <fs_item>-material.
+    ENDLOOP.
+
+    TRY.
+
+        APPEND INITIAL LINE TO result.
+
+        result[ 1 ]-%param = VALUE #( salesorder = ls_hdr_out-doc_number
+                                      salesordertype = keys[ 1 ]-%param-salesordertype
+                                      distributionchannel = keys[ 1 ]-%param-distributionchannel
+                                      salesorganization   = keys[ 1 ]-%param-salesorganization
+                                      organizationdivision = keys[ 1 ]-%param-organizationdivision
+                                      customerreference = keys[ 1 ]-%param-customerreference
+                                      customerrefdate = keys[ 1 ]-%param-customerrefdate
+                                      documentdate = keys[ 1 ]-%param-documentdate
+                                      paymentterm = keys[ 1 ]-%param-paymentterm
+                                      deliveryblock = keys[ 1 ]-%param-deliveryblock
+                                      shippingcondition = keys[ 1 ]-%param-shippingcondition
+                                      orderreason = keys[ 1 ]-%param-orderreason
+                                      incotermversion = keys[ 1 ]-%param-incotermversion
+                                      incoterm = keys[ 1 ]-%param-incoterm
+                                      incotermloc1 = keys[ 1 ]-%param-incotermloc1
+                                      incotermloc2 = keys[ 1 ]-%param-incotermloc2
+                                      soldtoparty = keys[ 1 ]-%param-soldtoparty
+                                      totalcreditcheckstatus = ls_status-totstatcch
+                                      orderisblockedforcustomer = ''
+                                      _to_item = VALUE #( FOR ls_item IN lt_items
+                                                           ( salesorderitem = ls_item-itm_number
+                                                             product        = ls_item-material
+                                                             plant          = ls_item-plant
+                                                             quantity       = ls_item-target_qty
+                                                             orderquantityunit   = ls_item-target_qu
+                                                             customerpaymentterms = ls_item-pmnttrms
+                                                             _to_characteristic = VALUE #( FOR ls_sales_cfgs_r IN lt_sales_cfgs_ref WHERE ( posex = ls_item-itm_number )
+                                                                                            FOR ls_char IN lt_sales_cfgs_value WHERE ( config_id = ls_sales_cfgs_r-config_id
+                                                                                                                               AND     inst_id   = ls_sales_cfgs_r-root_id )
+                                                                                             ( salesorderitem = ls_item-itm_number
+                                                                                               characteristic = ls_char-charc
+                                                                                               charcvalue     = ls_char-value
+                                                                                               productconfiguration = ls_char-config_id  ) )
+                                                             _to_scheduleline   = VALUE #( FOR ls_schd IN lt_schedule_ex WHERE ( itm_number = ls_item-itm_number )
+                                                                                             ( salesorderitem = ls_item-itm_number
+                                                                                               scheduleline   = ls_schd-sched_line
+                                                                                               orderquantityunit = ls_schd-sales_unit
+                                                                                               confirmedqty   = ls_schd-confir_qty
+                                                                                               deliverydate   = ls_schd-req_date
+                                                                                               requesteddeliverydate = keys[ 1 ]-%param-requireddeliverydate ) )
+                                                             _to_pricing        = VALUE #(  FOR ls_conditions_ex IN lt_conditions_ex WHERE ( itm_number = ls_item-itm_number )
+                                                                                            (  salesorderitem              = ls_conditions_ex-itm_number
+                                                                                               pricingprocedurestep        = ls_conditions_ex-cond_st_no
+                                                                                               pricingprocedurecounter     = ls_conditions_ex-cond_count
+                                                                                               conditiontype               = ls_conditions_ex-cond_type
+                                                                                               conditionbasevalue          = ls_conditions_ex-conbaseval
+                                                                                               conditionratevalue          = ls_conditions_ex-cond_value
+                                                                                               conditioncurrency           = ls_conditions_ex-currency
+                                                                                               conditioninactivereason     = ls_conditions_ex-condisacti
+                                                                                               conditionquantity           = ls_conditions_ex-cond_p_unt
+                                                                                               conditionquantityunit       = ls_conditions_ex-cd_unt_iso
+                                                                                               conditioncategory           = ls_conditions_ex-condtype
+                                                                                               conditionisforstatistics    = ls_conditions_ex-stat_con
+                                                                                               conditionamount             = ls_conditions_ex-condvalue
+                                                                                               transactioncurrency         = ls_conditions_ex-currency_2
+                                                                                               pricedetnexchangerate       = ls_conditions_ex-conexchrat
+                                                                                               conditionismanuallychanged  = ls_conditions_ex-condchaman
+                                                                                               conditionisforconfiguration = ls_conditions_ex-condconfig
+                                                                                               variantcondition            = ls_conditions_ex-varcond )
+                                                                                                 ) ) ) ) .
+
+
+        DATA(lt_extensionex_1) = lt_extensionex.
+        DELETE lt_extensionex_1 WHERE structure <> 'BAPE_VBAP'.
+        CLEAR: ls_bape_vbap.
+        LOOP AT lt_extensionex_1 INTO DATA(ls_extensionex_1).
+          ls_bape_vbap = ls_extensionex_1-valuepart1 .
+
+          LOOP AT result[ 1 ]-%param-_to_item ASSIGNING FIELD-SYMBOL(<lfs_result>) WHERE salesorderitem = ls_bape_vbap-posnr.
+            <lfs_result>-manualsaledeal = ls_bape_vbap-zz1_salesdeal_mnl1_sdi.
+            <lfs_result>-autosalesdeal  = ls_bape_vbap-zz1_salesdeal_auto_sdi.
+
+            IF line_exists( lt_business_ex[ itm_number = <lfs_result>-salesorderitem ] ).
+              <lfs_result>-customerpaymentterms = lt_business_ex[ itm_number = <lfs_result>-salesorderitem ]-pmnttrms.
+            ELSEIF line_exists( lt_business_ex[ itm_number = '000000' ] ).
+              <lfs_result>-customerpaymentterms = lt_business_ex[ itm_number = '000000' ]-pmnttrms.
+            ENDIF.
+          ENDLOOP.
+
+          <lfs_result>-_to_pricing = VALUE #( BASE <lfs_result>-_to_pricing
+                                              FOR ls_items_ex IN lt_items_ex WHERE ( itm_number = <lfs_result>-salesorderitem )
+                                ( salesorderitem     = ls_items_ex-itm_number
+                                  conditiontype      = 'ZGRS'
+                                  conditionbasevalue = ls_items_ex-req_qty
+                                  conditionamount    = ( ls_items_ex-subtot_pp1 + ls_items_ex-subtot_pp2 )
+                                  conditionratevalue = ( ls_items_ex-subtot_pp1 + ls_items_ex-subtot_pp2 ) / ls_items_ex-req_qty )
+                                ( salesorderitem     = ls_items_ex-itm_number
+                                  conditiontype      = 'ZNET'
+                                  conditionbasevalue = ls_items_ex-req_qty
+                                  conditionamount    =  ls_items_ex-subtot_pp4
+                                  conditionratevalue =  ls_items_ex-subtot_pp4 / ls_items_ex-req_qty ) ) .
+
+        ENDLOOP.
+
+      CATCH cx_sy_itab_line_not_found.
+    ENDTRY.
+
+  ENDMETHOD.
+
+  METHOD handle_bapi_return.
+
+    "Process all messages
+    LOOP AT is_result-msg ASSIGNING FIELD-SYMBOL(<ls_bapi_msg>).
+      "Convert all messages
+      DATA(lo_behv_msg) = new_msg_from_bapi( <ls_bapi_msg> ).
+      "Stop on error
+      IF <ls_bapi_msg>-type CA gc_error.
+        DATA(lx_error_msg) = lo_behv_msg.
+        cs_reported-so = VALUE #( BASE cs_reported-so ( %msg = lo_behv_msg ) )   .
+        cs_failed-so   = VALUE #( ( %action-createso = '01' ) ).
+*        EXIT.
+      ELSE. "Success
+        cs_reported-so = VALUE #( BASE cs_reported-so ( %msg = lo_behv_msg ) ) .
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD new_msg_from_bapi.
+*&---------------------------------------------------------------------*
+*& Method adjust_numbers(Unmanaged SAVE - Late Numbering)              *
+*&---------------------------------------------------------------------*
+*& Title        :  Method to add messages from BAPI                    *
+*& RICEF ID     :  OTC-E-568                                           *
+*& Date         :  04/26/2025                                          *
+*& Author       :  Raunak Sharma/RSHARMA                        *
+*&---------------------------------------------------------------------*
+*& M O D I F I C A T I O N   L O G                                     *
+*&---------------------------------------------------------------------*
+*& Date         Programmer    Request #   Description                  *
+*&---------------------------------------------------------------------*
+*& mm/dd/yyyy   Xxxxxxxxxx    XXXXXXXXX   XXXXXXXXXXXXXXXXXXXXXXXXXXXXX*
+*&---------------------------------------------------------------------*
+    CHECK is_message IS NOT INITIAL.
+    "determine severity
+    DATA(lv_msg_type) = COND #( WHEN is_message-type IS NOT INITIAL THEN is_message-type
+                                ELSE if_abap_behv_message=>severity-error ).
+    "set system variables
+    MESSAGE ID is_message-id TYPE lv_msg_type NUMBER is_message-number
+       WITH is_message-message_v1 is_message-message_v2 is_message-message_v3 is_message-message_v4
+       INTO DATA(lv_msg).
+    TRY.
+        "raise message from system variables
+        RAISE EXCEPTION TYPE zcx_otc_simulateso_api USING MESSAGE.
+      CATCH zcx_otc_simulateso_api INTO ro_msg ##no_handler.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD getso.
+
+    DATA: lt_sales_documents       TYPE TABLE OF sales_key,
+          lt_order_headers_out     TYPE TABLE OF bapisdhd,
+          lt_order_items_out       TYPE TABLE OF bapisdit,
+          lt_order_schedules_out   TYPE TABLE OF bapisdhedu,
+          lt_salesorders           TYPE STANDARD TABLE OF zotc_i_abs_so_drivecomm_res,
+          ls_salesorders           TYPE zotc_i_abs_so_drivecomm_res,
+          lt_salesorders_items     TYPE STANDARD TABLE OF zotc_i_abs_so_decomm_itm_res,
+          ls_salesorders_items     TYPE zotc_i_abs_so_decomm_itm_res,
+          lt_order_business_out    TYPE TABLE OF bapisdbusi,
+          lt_order_partners_out    TYPE TABLE OF bapisdpart,
+          lt_order_cfgs_curefs_out TYPE TABLE OF bapicurefm,
+          lt_order_cfgs_cucfgs_out TYPE TABLE OF bapicucfgm,
+          lt_order_cfgs_cuins_out  TYPE TABLE OF bapicuinsm,
+          lt_order_cfgs_cuprts_out TYPE TABLE OF bapicuprtm,
+          lt_order_cfgs_cuvals_out TYPE TABLE OF bapicuvalm,
+          lt_att                   TYPE TABLE OF conf_out,
+          lt_dlvlock_status        TYPE TABLE OF dd07v.
+
+    DATA: i_bapi_view   TYPE    order_view.
+
+    i_bapi_view-header = abap_true.
+    i_bapi_view-item = abap_true.
+    i_bapi_view-sdschedule = abap_true.
+    i_bapi_view-business = abap_true.
+    i_bapi_view-partner = abap_true.
+    i_bapi_view-address = abap_true.
+    i_bapi_view-status_h = abap_true.
+    i_bapi_view-status_i = abap_true.
+    i_bapi_view-sdcond  = abap_true.
+    i_bapi_view-sdcond_add = abap_true.
+    i_bapi_view-contract = abap_true.
+    i_bapi_view-text = abap_true.
+    i_bapi_view-flow = abap_true.
+    i_bapi_view-billplan = abap_true.
+    i_bapi_view-configure = abap_true.
+    i_bapi_view-credcard = abap_true.
+    i_bapi_view-incomp_log = abap_true.
+
+    DATA: lv_vbeln TYPE vbeln.
+
+    lv_vbeln = |{ keys[ 1 ]-%param-salesorder ALPHA = IN WIDTH = 10 }|.
+    lt_sales_documents = VALUE #( ( vbeln = lv_vbeln ) ).
+
+    CALL FUNCTION 'BAPISDORDER_GETDETAILEDLIST'
+      EXPORTING
+        i_bapi_view           = i_bapi_view
+      TABLES
+        sales_documents       = lt_sales_documents
+        order_headers_out     = lt_order_headers_out
+        order_items_out       = lt_order_items_out
+        order_schedules_out   = lt_order_schedules_out
+        order_partners_out    = lt_order_partners_out
+        order_business_out    = lt_order_business_out
+        order_cfgs_curefs_out = lt_order_cfgs_curefs_out
+        order_cfgs_cucfgs_out = lt_order_cfgs_cucfgs_out
+        order_cfgs_cuins_out  = lt_order_cfgs_cuins_out
+        order_cfgs_cuprts_out = lt_order_cfgs_cuprts_out
+        order_cfgs_cuvals_out = lt_order_cfgs_cuvals_out.
+
+    "Get Material type
+    IF NOT lt_order_items_out IS INITIAL.
+      SELECT material, materialtype
+          FROM i_material
+          INTO TABLE @DATA(lt_material_type)
+          FOR ALL ENTRIES IN @lt_order_items_out
+          WHERE material = @lt_order_items_out-material_long.
+
+      SELECT vbap~vbeln, vbap~posnr, vbap~lprio, vbap~lssta, vbap~zz1_salesdeal_mnl1_sdi, vbap~zz1_salesdeal_mnl2_sdi, vbap~zz1_recipeid_sdi,
+             vbkd~inco1, vbkd~incov, vbkd~inco2_l, vbkd~inco3_l, vbkd~zterm
+        FROM vbap AS vbap LEFT OUTER JOIN vbkd AS vbkd
+        ON vbap~vbeln = vbkd~vbeln
+        WHERE vbap~vbeln = @lv_vbeln INTO TABLE @DATA(lt_salesdocument).
+
+
+      IF  lt_salesdocument IS NOT INITIAL.
+        SELECT * FROM tprit INTO TABLE @DATA(lt_tprit) FOR ALL ENTRIES IN @lt_salesdocument " delivery block priority
+         WHERE lprio = @lt_salesdocument-lprio AND spras = @sy-langu.
+      ENDIF.
+
+      IF  lt_salesdocument IS NOT INITIAL.
+        SELECT * FROM tinct INTO TABLE @DATA(lt_tinct) FOR ALL ENTRIES IN @lt_salesdocument " incoterms text
+        WHERE inco1 = @lt_salesdocument-inco1 AND spras = @sy-langu.
+      ENDIF.
+
+      IF  lt_salesdocument IS NOT INITIAL.
+        SELECT * FROM tincvt INTO TABLE @DATA(lt_tincvt) FOR ALL ENTRIES IN @lt_salesdocument  "incoterms version text
+        WHERE incov = @lt_salesdocument-incov AND spras = @sy-langu.
+      ENDIF.
+
+      IF  lt_salesdocument IS NOT INITIAL.
+        SELECT * FROM i_paymenttermstext INTO TABLE @DATA(lt_paymentterms) FOR ALL ENTRIES IN @lt_salesdocument " Payment Terms text
+          WHERE paymentterms = @lt_salesdocument-zterm AND language = @sy-langu.
+      ENDIF.
+
+      CALL FUNCTION 'GET_DOMAIN_VALUES'
+        EXPORTING
+          domname         = 'STATV'
+        TABLES
+          values_tab      = lt_dlvlock_status
+        EXCEPTIONS
+          no_values_found = 1
+          OTHERS          = 2.
+
+    ENDIF.
+
+    LOOP AT lt_order_items_out INTO DATA(ls_order_items_out).
+      ls_salesorders_items-salesorder          = lv_vbeln.
+      ls_salesorders_items-salesorderitem      = ls_order_items_out-itm_number .
+      ls_salesorders_items-material            = ls_order_items_out-material.
+      ls_salesorders_items-materialdescription = ls_order_items_out-short_text.
+      ls_salesorders_items-quantity            = ls_order_items_out-req_qty.
+      ls_salesorders_items-uom                 = ls_order_items_out-sales_unit.
+      ls_salesorders_items-reasonforrejection  = ls_order_items_out-rea_for_re.
+
+      ls_salesorders_items-materialtype = VALUE #( lt_material_type[ material = ls_order_items_out-material_long ]-materialtype OPTIONAL ).
+
+      TRY.
+          ls_salesorders_items-firstdeliverydate   = lt_order_schedules_out[ itm_number = ls_order_items_out-itm_number ]-req_date.
+        CATCH cx_sy_itab_line_not_found.
+          CLEAR:ls_salesorders_items-firstdeliverydate.
+      ENDTRY.
+      ls_salesorders_items-netprice           = ls_order_items_out-net_price.
+      ls_salesorders_items-netvalue           = ls_order_items_out-net_value.
+      ls_salesorders_items-currency           = ls_order_items_out-currency.
+
+      CALL FUNCTION 'VC_I_GET_CONFIGURATION'
+        EXPORTING
+          instance            = ls_order_items_out-config
+        TABLES
+          configuration       = lt_att
+        EXCEPTIONS
+          instance_not_found  = 1
+          internal_error      = 2
+          no_class_allocation = 3
+          instance_not_valid  = 4
+          OTHERS              = 5.
+      IF sy-subrc = 0.
+*        TRY.
+*            ls_salesorders_items-recipeid = lt_att[ atnam = 'AC001' ]-atwrt.
+*          CATCH cx_sy_itab_line_not_found.
+*            CLEAR:ls_salesorders_items-recipeid.
+*        ENDTRY.
+
+        TRY.
+            ls_salesorders_items-gridid = lt_att[ atnam = 'GRIDID' ]-atwrt.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR:ls_salesorders_items-gridid.
+        ENDTRY.
+
+      ENDIF.
+
+      TRY.
+          ls_salesorders_items-recipeid   = lt_salesdocument[ posnr = ls_order_items_out-itm_number ]-zz1_recipeid_sdi.
+        CATCH cx_sy_itab_line_not_found.
+          CLEAR:ls_salesorders_items-recipeid.
+      ENDTRY.
+
+      APPEND ls_salesorders_items TO lt_salesorders_items.
+      CLEAR: ls_order_items_out, ls_salesorders_items, lt_att.
+    ENDLOOP.
+
+    TRY.
+        DATA(lv_sold_to) = lt_order_partners_out[ sd_doc = keys[ 1 ]-%param-salesorder  partn_role = 'AG' ]-customer.
+        IF lv_sold_to IS NOT INITIAL.
+          DATA(lv_soldto_addr) = VALUE #( lt_order_partners_out[ customer = lv_sold_to ]-address OPTIONAL ).
+          SELECT SINGLE * FROM adrc INTO @DATA(ls_sold_to) WHERE addrnumber = @lv_soldto_addr.
+        ENDIF.
+      CATCH cx_sy_itab_line_not_found.
+        CLEAR:lv_sold_to.
+    ENDTRY.
+
+    TRY.
+        DATA(lv_ship_to) = lt_order_partners_out[ sd_doc = keys[ 1 ]-%param-salesorder partn_role = 'WE' ]-customer.
+        IF lv_ship_to IS NOT INITIAL.
+          DATA(lv_shipto_addr) = VALUE #( lt_order_partners_out[ customer = lv_sold_to ]-address OPTIONAL ).
+          SELECT SINGLE * FROM adrc INTO @DATA(ls_ship_to) WHERE addrnumber = @lv_shipto_addr.
+        ENDIF.
+      CATCH cx_sy_itab_line_not_found.
+        CLEAR:lv_ship_to.
+    ENDTRY.
+
+    TRY.
+        DATA(lv_customerreference) =  lt_order_business_out[ sd_doc = keys[ 1 ]-%param-salesorder ]-purch_no_c.
+      CATCH cx_sy_itab_line_not_found.
+        CLEAR lv_customerreference.
+    ENDTRY.
+
+    TRY.
+        DATA(lv_customerref_date) =  lt_order_business_out[ sd_doc = keys[ 1 ]-%param-salesorder  ]-purch_date.
+      CATCH cx_sy_itab_line_not_found.
+        CLEAR: lv_customerref_date.
+    ENDTRY.
+
+    TRY.
+
+        SELECT SINGLE fsh_candate FROM vbap INTO @DATA(lv_fsh_date) WHERE vbeln = @lv_vbeln AND posnr = '000010'.
+
+        DATA(ls_order_headers_out) = lt_order_headers_out[ 1 ].
+        SELECT SINGLE bezei FROM tvakt WHERE spras = @sy-langu AND auart = @ls_order_headers_out-doc_type  INTO @DATA(lv_auart_t).
+        SELECT SINGLE vtext FROM tvkot WHERE spras = @sy-langu AND vkorg = @ls_order_headers_out-sales_org INTO @DATA(lv_vkorg_t).
+        SELECT SINGLE vtext FROM tvtwt WHERE spras = @sy-langu AND vtweg = @ls_order_headers_out-distr_chan INTO @DATA(lv_vtweg_t).
+        SELECT SINGLE vtext FROM tspat WHERE spras = @sy-langu AND spart = @ls_order_headers_out-division INTO @DATA(lv_spart_t).
+        SELECT SINGLE vtext FROM tvsbt WHERE spras = @sy-langu AND vsbed = @ls_order_headers_out-ship_cond INTO @DATA(lv_vsbed_t).
+        SELECT kunnr, name1 FROM kna1  WHERE kunnr IN ( @lv_sold_to, @lv_ship_to ) INTO TABLE @DATA(lt_kna1).
+        SELECT SINGLE bezei FROM tvaut WHERE spras = @sy-langu AND augru = @ls_order_headers_out-ord_reason INTO @DATA(lv_order_reason_t).
+
+        TRY.
+            DATA(lv_shipto_name) = lt_kna1[ kunnr = lv_ship_to ]-name1.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR:lv_shipto_name.
+        ENDTRY.
+
+        TRY.
+            DATA(lv_soldto_name) = lt_kna1[ kunnr = lv_sold_to ]-name1.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR:lv_soldto_name.
+        ENDTRY.
+
+        LOOP AT lt_order_items_out INTO DATA(ls_orderitm).
+          CALL FUNCTION 'CO_61_CHECK_ORD_TO_SDOC'
+            EXPORTING
+              vbeln_imp          = lv_vbeln
+              vbelp_imp          = ls_orderitm-itm_number
+            EXCEPTIONS
+              order_comp         = 1
+              order_exists       = 2
+              order_inwork       = 3
+              insufficient_input = 4
+              OTHERS             = 5.
+          IF sy-subrc = 3.
+            DATA(lv_ordrelease) = abap_true.
+          ENDIF.
+        ENDLOOP.
+
+        APPEND INITIAL LINE TO result.
+        result[ 1 ]-%param = VALUE #(  salesorder            = keys[ 1 ]-%param-salesorder
+                                       salesorg              = ls_order_headers_out-sales_org
+                                       salesorgtext          = lv_vkorg_t
+                                       distributionchannel   = ls_order_headers_out-distr_chan
+                                       distributionchanneltext = lv_vtweg_t
+                                       division              = ls_order_headers_out-division
+                                       divisiontext          = lv_spart_t
+                                       ordertype             = ls_order_headers_out-doc_type
+                                       ordertypetext         = lv_auart_t
+                                       requesteddeliverydate = ls_order_headers_out-req_date_h
+                                       orderreason           = ls_order_headers_out-ord_reason
+                                       orderreasontext       = lv_order_reason_t
+                                       soldtoparty           = lv_sold_to
+                                       soldtopartyname       = lv_soldto_name
+                                       shiptoparty           = lv_ship_to
+                                       shiptopartyname       = lv_shipto_name
+                                       customerreference     = lv_customerreference
+                                       custrefdate           = lv_customerref_date
+                                       documentdate          = ls_order_headers_out-doc_date
+                                       canceldate            = lv_fsh_date
+                                       shippingcondition     = ls_order_headers_out-ship_cond
+                                       shippingconditiontext = lv_vsbed_t
+                                       dlv_prio              = VALUE #( lt_order_items_out[ 1 ]-dlv_prio OPTIONAL )
+                                       deliveryprioritytext  = VALUE #( lt_tprit[ lprio = VALUE #( lt_order_items_out[ 1 ]-dlv_prio OPTIONAL ) ]-bezei OPTIONAL )
+                                       dlv_block             = VALUE #( lt_order_headers_out[ 1 ]-dlv_block OPTIONAL )
+                                       deliveryblocktext     = VALUE #( lt_dlvlock_status[ domvalue_l = VALUE #( lt_salesdocument[ 1 ]-lssta OPTIONAL ) ]-ddtext OPTIONAL  )
+                                       manualsaledeal1       = VALUE #( lt_salesdocument[ 1 ]-zz1_salesdeal_mnl1_sdi OPTIONAL )
+                                       manualsaledeal2       = VALUE #( lt_salesdocument[ 1 ]-zz1_salesdeal_mnl2_sdi OPTIONAL )
+                                       incoterms             = VALUE #( lt_salesdocument[ 1 ]-inco1 OPTIONAL )
+                                       incotermstext         = VALUE #( lt_tinct[ inco1 = VALUE #( lt_salesdocument[ 1 ]-inco1 OPTIONAL ) ]-bezei OPTIONAL )
+                                       incotermsversion      = VALUE #( lt_salesdocument[ 1 ]-incov OPTIONAL )
+                                       incotermsversiontext  = VALUE #( lt_tincvt[ incov = VALUE #( lt_salesdocument[ 1 ]-incov OPTIONAL ) ]-bezei OPTIONAL )
+                                       incotermslocation1    = VALUE #( lt_salesdocument[ 1 ]-inco2_l OPTIONAL )
+                                       incotermslocation2    = VALUE #( lt_salesdocument[ 1 ]-inco3_l OPTIONAL )
+                                       paymentterms          = VALUE #( lt_salesdocument[ 1 ]-zterm OPTIONAL )
+                                       paymenttermstext      = VALUE #( lt_paymentterms[ paymentterms = VALUE #( lt_salesdocument[ 1 ]-zterm OPTIONAL ) ]-paymenttermsdescription OPTIONAL )
+                                       soldtostreet          = ls_sold_to-street
+                                       soldtopostalcd        = ls_sold_to-post_code1
+                                       soldtocity            = ls_sold_to-city1
+                                       soldtocountry         = ls_sold_to-country
+                                       soldtoregion          = ls_sold_to-region
+                                       shiptostreet          = ls_ship_to-street
+                                       shiptopostalcd        = ls_ship_to-post_code1
+                                       shiptocity            = ls_ship_to-city1
+                                       shiptocountry         = ls_ship_to-country
+                                       shiptoregion          = ls_ship_to-region
+                                       version               = VALUE #( lt_order_headers_out[ 1 ]-version OPTIONAL )
+                                       isprdordreleased      = lv_ordrelease
+                                       _item                 = VALUE #( FOR ls_salesorders_itm IN lt_salesorders_items (
+                                       salesorder            =  ls_salesorders_itm-salesorder
+                                       salesorderitem        =  ls_salesorders_itm-salesorderitem
+                                       material              =  ls_salesorders_itm-material
+                                       materialdescription   =  ls_salesorders_itm-materialdescription
+                                       materialtype          =  ls_salesorders_itm-materialtype
+                                       quantity              =  ls_salesorders_itm-quantity
+                                       uom                   =  ls_salesorders_itm-uom
+                                       firstdeliverydate     =  ls_salesorders_itm-firstdeliverydate
+                                       netprice              =  ls_salesorders_itm-netprice
+                                       netvalue              =  ls_salesorders_itm-netvalue
+                                       currency              =  ls_salesorders_itm-currency
+                                       gridid                =  ls_salesorders_itm-gridid
+                                       recipeid              =  ls_salesorders_itm-recipeid
+                                       reasonforrejection    =  ls_salesorders_itm-reasonforrejection
+*                                       recipientid           =  ls_salesorders_itm-recipientid
+                                       _to_characteristic    = VALUE #( FOR ls_sales_cfgs_r IN lt_order_cfgs_cucfgs_out
+                                                               WHERE ( posex = ls_salesorders_itm-salesorderitem )
+                                                                        FOR ls_char IN lt_order_cfgs_cuvals_out
+                                                                        WHERE ( config_id = ls_sales_cfgs_r-config_id
+                                                                        AND     inst_id   = ls_sales_cfgs_r-root_id )
+                                                                             ( salesorder = ls_salesorders_itm-salesorder
+                                                                               salesorderitem = ls_salesorders_itm-salesorderitem
+                                                                               characteristic = ls_char-charc
+                                                                               charcvalue     = ls_char-value
+                                                                                productconfiguration = ls_char-config_id  ) ) ) ) ) .
+
+        result[ 1 ]-%key = CORRESPONDING #( keys[ 1 ] ).
+
+      CATCH cx_sy_itab_line_not_found.
+        CLEAR: ls_order_headers_out.
+    ENDTRY.
+
+
+  ENDMETHOD.
+
+  METHOD changeso.
+
+    DATA: ls_order_header_in  TYPE bapisdhd1,
+          ls_order_header_inx TYPE bapisdhd1x,
+          lt_item_in          TYPE TABLE OF bapisditm,
+          lt_item_inx         TYPE TABLE OF bapisditmx,
+          lt_partners         TYPE TABLE OF bapiparnr,
+          lt_sales_cfgs_ref   TYPE TABLE OF bapicucfg,
+          ls_sales_cfgs_ref   TYPE          bapicucfg,
+          lt_sales_cfgs_inst  TYPE TABLE OF bapicuins,
+          lt_sales_cfgs_value TYPE TABLE OF bapicuval,
+          ls_sales_cfgs_value TYPE          bapicuval,
+          lt_schdlines        TYPE TABLE OF bapischdl,
+          lt_schdlinesx       TYPE TABLE OF bapischdlx,
+          lt_return           TYPE TABLE OF bapiret2.
+
+    DATA: lt_extensionin TYPE TABLE OF bapiparex,
+          ls_extensionin TYPE bapiparex,
+          ls_bape_vbap   TYPE bape_vbap,
+          ls_bape_vbapx  TYPE bape_vbapx,
+          ls_bape_vbak   TYPE bape_vbak,
+          ls_bape_vbakx  TYPE bape_vbakx.
+
+    DATA: lv_configid(6) TYPE n,
+          lv_inst_id(8)  TYPE n,
+          lv_manualdeal1 TYPE zz1_salesdeal_mnl1,
+          lv_manualdeal2 TYPE zz1_salesdeal_mnl2.
+
+    ls_order_header_in = VALUE #( sales_org   = keys[ 1 ]-%param-salesorg
+                                  distr_chan  = keys[ 1 ]-%param-distributionchannel
+                                  division    = keys[ 1 ]-%param-division
+                                  doc_type    = keys[ 1 ]-%param-ordertype
+                                  req_date_h  = keys[ 1 ]-%param-requesteddeliverydate
+                                  ord_reason  = keys[ 1 ]-%param-orderreason
+                                  purch_no_c  = keys[ 1 ]-%param-customerreference
+                                  purch_date  = keys[ 1 ]-%param-custrefdate
+                                  doc_date    = keys[ 1 ]-%param-documentdate
+                                  ship_cond   = keys[ 1 ]-%param-shippingcondition
+                                  dlv_block   = keys[ 1 ]-%param-dlv_block
+                                  incoterms1  = keys[ 1 ]-%param-incoterms
+                                  incotermsv  = keys[ 1 ]-%param-incotermsversion
+                                  incoterms2l = keys[ 1 ]-%param-incotermslocation1
+                                  incoterms3l = keys[ 1 ]-%param-incotermslocation2 ).
+
+    ls_order_header_inx = VALUE #( updateflag  = 'U'
+                                   sales_org   = abap_true
+                                   distr_chan  = abap_true
+                                   division    = abap_true
+                                   doc_type    = abap_true
+                                   req_date_h  = abap_true
+                                   ord_reason  = abap_true
+                                   purch_no_c  = abap_true
+                                   purch_date  = abap_true
+                                   doc_date    = abap_true
+                                   ship_cond   = abap_true
+                                   dlv_block   = abap_true
+                                   incoterms1  = abap_true
+                                   incotermsv  = abap_true
+                                   incoterms2l = abap_true
+                                   incoterms3l = abap_true ).
+
+    lt_partners  = VALUE #( ( partn_role = 'WE'
+                              partn_numb =  keys[ 1 ]-%param-soldtoparty
+                              street     =  keys[ 1 ]-%param-soldtostreet
+                              postl_code =  keys[ 1 ]-%param-soldtopostalcd
+                              city       =  keys[ 1 ]-%param-soldtocity
+                              country    =  keys[ 1 ]-%param-soldtocountry
+                              region     =  keys[ 1 ]-%param-soldtoregion )
+                            ( partn_role = 'AG'
+                              partn_numb =  keys[ 1 ]-%param-shiptoparty
+                              street     =  keys[ 1 ]-%param-shiptostreet
+                              postl_code =  keys[ 1 ]-%param-shiptopostalcd
+                              city       =  keys[ 1 ]-%param-shiptocity
+                              country    =  keys[ 1 ]-%param-shiptocountry
+                              region     =  keys[ 1 ]-%param-shiptoregion
+                               )  ) .
+
+    lt_item_inx = VALUE #(  FOR ls_item_keys IN keys[ 1 ]-%param-_item  (
+                              itm_number = ls_item_keys-salesorderitem
+                              updateflag = ls_item_keys-updateflag
+                              po_itm_no  = abap_true
+                              material   = abap_true
+                              target_qty = abap_true
+                              target_qu  = abap_true
+                              reason_rej = abap_true
+                              dlv_prio   = abap_true
+                                 ) ).
+    DELETE lt_item_inx WHERE updateflag IS INITIAL.
+    lt_item_in = VALUE #(   FOR ls_itm_x IN  lt_item_inx
+                             FOR ls_item_keys IN keys[ 1 ]-%param-_item
+                              WHERE ( salesorderitem = ls_itm_x-itm_number  )
+                            (
+                              itm_number = ls_item_keys-salesorderitem
+                              po_itm_no  = ls_item_keys-salesorderitem
+                              material   = ls_item_keys-material
+                              target_qty = ls_item_keys-quantity
+                              target_qu  = ls_item_keys-uom
+                              reason_rej = ls_item_keys-reasonforrejection
+                              dlv_prio   = keys[ 1 ]-%param-dlv_prio
+                                 ) ).
+
+
+    lt_schdlinesx = VALUE #( FOR ls_schd_to_itemx IN keys[ 1 ]-%param-_item "lt_item_inx "
+                                ( itm_number = ls_schd_to_itemx-salesorderitem "ls_schd_to_itemx-itm_number
+                                  sched_line = '0001'
+                                  updateflag = ls_schd_to_itemx-updateflag
+                                  req_date   = 'X'
+                                  req_qty    = 'X'
+                                     ) ).
+
+    DELETE lt_schdlinesx WHERE updateflag IS INITIAL.
+    lt_schdlines = VALUE #(  FOR ls_schdlinesx IN  lt_schdlinesx
+                            FOR ls_schd_to_item IN keys[ 1 ]-%param-_item
+                            WHERE ( salesorderitem = ls_schdlinesx-itm_number )
+                            ( itm_number = ls_schd_to_item-salesorderitem
+                              sched_line = '0001'
+                              req_date   = keys[ 1 ]-%param-requesteddeliverydate
+                              req_qty    = ls_schd_to_item-quantity
+
+                                   ) ).
+
+
+    CLEAR:lv_configid, lv_inst_id.
+    lv_configid                 = lv_configid + '000001' .
+    lv_inst_id                  = lv_inst_id  + '00000001' .
+    LOOP AT  keys[ 1 ]-%param-_item INTO DATA(ls_to_item) WHERE ( updateflag IS NOT INITIAL ).
+      LOOP AT  ls_to_item-_to_characteristic INTO DATA(ls_charac).
+        ls_sales_cfgs_ref-posex     = ls_to_item-salesorderitem.
+        ls_sales_cfgs_ref-config_id = lv_configid.
+        ls_sales_cfgs_ref-root_id   = lv_inst_id .
+        ls_sales_cfgs_ref-cfginfo   =  'CFGINFO'.
+        AT END OF salesorderitem.
+          APPEND ls_sales_cfgs_ref TO lt_sales_cfgs_ref.
+          CLEAR:ls_sales_cfgs_ref.
+          lv_configid                 = lv_configid + '000001' .
+          lv_inst_id                  = lv_inst_id  + '00000001' .
+        ENDAT.
+
+      ENDLOOP.
+      CLEAR:ls_to_item.
+    ENDLOOP.
+*
+    lt_sales_cfgs_inst = VALUE #( FOR ls_sales_cfgs_rf IN lt_sales_cfgs_ref
+                                  ( config_id = ls_sales_cfgs_rf-config_id
+                                    inst_id   = ls_sales_cfgs_rf-root_id  ) ) .
+*
+    CLEAR: lv_configid, lv_inst_id.
+    lv_configid                   = lv_configid + '000001' .
+    lv_inst_id                    = lv_inst_id  + '00000001' .
+    LOOP AT keys[ 1 ]-%param-_item INTO ls_to_item WHERE ( updateflag IS NOT INITIAL ).
+      LOOP AT  ls_to_item-_to_characteristic INTO ls_charac.
+        ls_sales_cfgs_value-config_id = lv_configid.
+        ls_sales_cfgs_value-inst_id   = lv_inst_id.
+        ls_sales_cfgs_value-charc     = ls_charac-characteristic.
+        ls_sales_cfgs_value-value     = ls_charac-charcvalue.
+        AT END OF salesorderitem.
+          lv_configid                 = lv_configid + '000001' .
+          lv_inst_id                  = lv_inst_id  + '00000001' .
+        ENDAT.
+        APPEND ls_sales_cfgs_value TO lt_sales_cfgs_value.
+        CLEAR: ls_sales_cfgs_value.
+      ENDLOOP.
+      CLEAR: ls_to_item.
+    ENDLOOP.
+
+    LOOP AT keys[ 1 ]-%param-_item INTO DATA(ls_itm).
+      ls_bape_vbap-vbeln = keys[ 1 ]-salesorder.
+      ls_bape_vbap-posnr = ls_itm-salesorderitem.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = keys[ 1 ]-%param-manualsaledeal1
+        IMPORTING
+          output = lv_manualdeal1.
+
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = keys[ 1 ]-%param-manualsaledeal2
+        IMPORTING
+          output = lv_manualdeal2.
+
+      ls_bape_vbap-zz1_salesdeal_mnl1_sdi = lv_manualdeal1.
+      ls_bape_vbap-zz1_salesdeal_mnl2_sdi = lv_manualdeal2.
+      ls_extensionin-structure = 'BAPE_VBAP'.
+      ls_extensionin-valuepart1 = ls_bape_vbap.
+
+      APPEND ls_extensionin TO lt_extensionin.
+
+      ls_bape_vbapx-posnr = ls_itm-salesorderitem.
+      ls_bape_vbapx-zz1_salesdeal_mnl1_sdi = abap_true.
+      ls_bape_vbapx-zz1_salesdeal_mnl2_sdi = abap_true.
+
+      ls_extensionin-structure = 'BAPE_VBAPX'.
+      ls_extensionin-valuepart1 = ls_bape_vbapx.
+
+      APPEND ls_extensionin TO lt_extensionin.
+      CLEAR: ls_extensionin, ls_itm.
+    ENDLOOP.
+
+    IF  keys[ 1 ]-%param-dlv_prio IS NOT INITIAL.
+      ls_bape_vbak-vbeln            = keys[ 1 ]-salesorder.
+      ls_bape_vbak-zz1_lprioh_sdh   = keys[ 1 ]-%param-dlv_prio.
+      ls_extensionin-structure      = 'BAPE_VBAK'.
+      ls_extensionin-valuepart1     = ls_bape_vbak.
+      APPEND ls_extensionin TO lt_extensionin.
+
+      ls_bape_vbakx-zz1_lprioh_sdh = 'X'.
+      ls_extensionin-structure = 'BAPE_VBAKX'.
+      ls_extensionin-valuepart1 = ls_bape_vbakx.
+      APPEND ls_extensionin TO lt_extensionin.
+      CLEAR: ls_extensionin.
+    ENDIF.
+
+    CALL FUNCTION 'SD_SALESDOCUMENT_CHANGE' DESTINATION 'NONE'
+      EXPORTING
+        salesdocument     = keys[ 1 ]-salesorder
+        order_header_in   = ls_order_header_in
+        order_header_inx  = ls_order_header_inx
+*      IMPORTING
+*       sales_header_out  =
+*       sales_header_status       =
+      TABLES
+        return            = lt_return
+        item_in           = lt_item_in
+        item_inx          = lt_item_inx
+        schedule_in       = lt_schdlines
+        schedule_inx      = lt_schdlinesx
+        partners          = lt_partners
+*       partnerchanges    =
+*       partneraddresses  =
+        sales_cfgs_ref    = lt_sales_cfgs_ref
+        sales_cfgs_inst   = lt_sales_cfgs_inst
+*       sales_cfgs_part_of        =
+        sales_cfgs_value  = lt_sales_cfgs_value
+        extensionin       = lt_extensionin
+      EXCEPTIONS
+        incov_not_in_item = 1
+        OTHERS            = 2.
+    IF sy-subrc = 0.
+*     MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*       WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+    ENDIF.
+
+    handle_bapi_return( EXPORTING is_result = VALUE #( msg = lt_return )
+                               CHANGING  cs_reported = reported
+                                         cs_failed   = failed   ).
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT' DESTINATION 'NONE'
+      EXPORTING
+        wait = 'X'.
+
+
+    APPEND INITIAL LINE TO result.
+    result[ 1 ]-salesorder = keys[ 1 ]-salesorder.
+    result[ 1 ]-%param-salesorder = keys[ 1 ]-salesorder.
+    result[ 1 ]-%param-_logs = VALUE #( FOR ls_return IN lt_return (
+                                         type   = ls_return-type
+                                         id     = ls_return-id
+                                         nmbr   = ls_return-number
+                                         message = ls_return-message
+                                         log_no = ls_return-log_no
+                                         log_msg_no = ls_return-log_msg_no
+                                         message_v1 = ls_return-message_v1
+                                         message_v2 = ls_return-message_v2
+                                         message_v3 = ls_return-message_v3
+                                         message_v4 = ls_return-message_v4
+                                         paramtr    = ls_return-parameter
+                                         row_id = ls_return-row
+                                         field = ls_return-field
+                                         system_id = ls_return-system ) ).
+
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lsc_zotc_r_slsord_crt_hdr DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+
+    METHODS finalize REDEFINITION.
+
+    METHODS check_before_save REDEFINITION.
+
+    METHODS save REDEFINITION.
+
+    METHODS cleanup REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+ENDCLASS.
+
+CLASS lsc_zotc_r_slsord_crt_hdr IMPLEMENTATION.
+
+  METHOD finalize.
+  ENDMETHOD.
+
+  METHOD check_before_save.
+  ENDMETHOD.
+
+  METHOD save.
+  ENDMETHOD.
+
+  METHOD cleanup.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+ENDCLASS.
